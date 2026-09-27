@@ -1,8 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
-const crypto = require('crypto');
-const fs = require('fs');
+const { Pool } = require('pg');
 const path = require('path');
 
 const app = express();
@@ -10,436 +9,252 @@ app.use(express.json());
 app.use(express.static('public'));
 
 /* ================================================================
-   💾 DATABASE (JSON file — simple, khadma mzyan)
+   🐘 POSTGRESQL DATABASE (dima msjjela — ma ytmss7 walo!)
    ================================================================ */
-const DB_FILE = path.join(__dirname, 'data.json');
-function loadDB() {
-  try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); }
-  catch(e) { return { orders: [], services: [], clients: [], settings: { margin: 3.0 } }; }
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false }
+});
+
+/* Sayeb les tables automatiquement f awal marra */
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS services (
+      jap_id INTEGER PRIMARY KEY,
+      category TEXT,
+      name TEXT,
+      type TEXT,
+      rate NUMERIC,
+      min INTEGER,
+      max INTEGER,
+      my_price NUMERIC
+    );
+    CREATE TABLE IF NOT EXISTS orders (
+      id TEXT PRIMARY KEY,
+      service_jap_id INTEGER,
+      service_name TEXT,
+      link TEXT,
+      quantity INTEGER,
+      amount NUMERIC,
+      jap_rate NUMERIC,
+      method TEXT,
+      status TEXT,
+      pay_ref TEXT,
+      jap_order_id TEXT,
+      jap_cost NUMERIC,
+      date TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  console.log('✅ Database tables ready');
 }
-function saveDB(db) { fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
 
 /* ================================================================
-   📊 STATS HELPERS
-   ================================================================ */
-function getStats() {
-  const db = loadDB();
-  const completed = db.orders.filter(o => o.status === 'Completed');
-  const totalRevenue = completed.reduce((a,o) => a + (o.amount || 0), 0);
-  const totalCost = completed.reduce((a,o) => a + (o.japCost || 0), 0);
-  return {
-    totalOrders: db.orders.length,
-    completed: completed.length,
-    inProgress: db.orders.filter(o => o.status === 'In Progress').length,
-    pending: db.orders.filter(o => o.status === 'Pending').length,
-    totalRevenue: totalRevenue.toFixed(2),
-    totalCost: totalCost.toFixed(2),
-    totalProfit: (totalRevenue - totalCost).toFixed(2),
-    clients: db.clients.length,
-    services: db.services.length
-  };
-}
-
-/* ================================================================
-   📦 JAP API INTEGRATION
+   📦 JAP API
    ================================================================ */
 const JAP_URL = process.env.JAP_API_URL;
 const JAP_KEY = process.env.JAP_API_KEY;
 
-/* Import kol services mn JAP (f 1 click) */
-async function importJAPServices() {
-  const res = await axios.post(JAP_URL, { key: JAP_KEY, action: 'services' });
-  return res.data;
-}
-
-/* Create order f JAP */
 async function createJAPOrder(serviceJapId, link, quantity) {
-  const res = await axios.post(JAP_URL, {
-    key: JAP_KEY,
-    action: 'add',
-    service: serviceJapId,
-    link: link,
-    quantity: quantity
-  });
-  return res.data;
+  try {
+    const res = await axios.post(JAP_URL, { key: JAP_KEY, action: 'add', service: serviceJapId, link: link, quantity: quantity });
+    return { success: true, japOrderId: res.data.order };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 }
 
-/* Check status dyal order f JAP */
 async function checkJAPStatus(japOrderId) {
-  const res = await axios.post(JAP_URL, {
-    key: JAP_KEY,
-    action: 'status',
-    order: japOrderId
-  });
-  return res.data;
-}
-
-/* Balance dyalek f JAP */
-async function getJAPBalance() {
-  const res = await axios.post(JAP_URL, {
-    key: JAP_KEY,
-    action: 'balance'
-  });
-  return res.data;
+  try {
+    const res = await axios.post(JAP_URL, { key: JAP_KEY, action: 'status', order: japOrderId });
+    return res.data;
+  } catch (err) { return { error: err.message }; }
 }
 
 /* ================================================================
-   💰 PAYPAL SERVER-SIDE (SECURE!)
+   💰 PAYPAL
    ================================================================ */
-let paypalToken = null, paypalTokenExpiry = 0;
+let ppToken = null, ppTokenExpiry = 0;
 
 async function getPayPalAccessToken() {
-  if (paypalToken && Date.now() < paypalTokenExpiry) return paypalToken;
+  if (ppToken && Date.now() < ppTokenExpiry) return ppToken;
   const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_CLIENT_SECRET}`).toString('base64');
   const res = await axios.post('https://api-m.paypal.com/v1/oauth2/token',
     'grant_type=client_credentials',
-    { headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' } }
-  );
-  paypalToken = res.data.access_token;
-  paypalTokenExpiry = Date.now() + (res.data.expires_in - 60) * 1000;
-  return paypalToken;
+    { headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' } });
+  ppToken = res.data.access_token;
+  ppTokenExpiry = Date.now() + (res.data.expires_in - 60) * 1000;
+  return ppToken;
 }
-
-/* Create PayPal order */
-app.post('/api/paypal/create-order', async (req, res) => {
-  try {
-    const { amount, description } = req.body;
-    const token = await getPayPalAccessToken();
-    const r = await axios.post('https://api-m.paypal.com/v2/checkout/orders', {
-      intent: 'CAPTURE',
-      purchase_units: [{
-        amount: { currency_code: 'USD', value: Number(amount).toFixed(2) },
-        description: String(description || 'SocialBoost order').slice(0, 127)
-      }]
-    }, { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } });
-    res.json({ success: true, orderId: r.data.id });
-  } catch (err) {
-    console.error('PayPal create error:', err.response?.data || err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/* Capture + verify PayPal payment */
-app.post('/api/paypal/capture', async (req, res) => {
-  try {
-    const { orderId } = req.body;
-    const token = await getPayPalAccessToken();
-    const r = await axios.post(`https://api-m.paypal.com/v2/checkout/orders/${orderId}/capture`,
-      {}, { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } });
-    const order = r.data;
-    if (order.status === 'COMPLETED') {
-      const amount = parseFloat(order.purchase_units[0].payments.captures[0].amount.value);
-      res.json({ success: true, amount, captureId: order.purchase_units[0].payments.captures[0].id });
-    } else {
-      res.json({ success: false, error: 'Payment not completed' });
-    }
-  } catch (err) {
-    console.error('PayPal capture error:', err.response?.data || err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 /* ================================================================
-   🪙 CRYPTOMUS (USDT) — Automatic invoice + webhook
+   🌐 ROUTES
    ================================================================ */
-function cryptomusSign(body) {
-  return crypto.createHmac('sha512', process.env.CRYPTOMUS_PAY_KEY)
-    .update(JSON.stringify(body)).digest('hex');
-}
 
-/* Create USDT invoice */
-app.post('/api/usdt/create-invoice', async (req, res) => {
+/* ---------- SERVICES ---------- */
+app.get('/api/import-services', async (req, res) => {
   try {
-    const { amount, orderId } = req.body;
-    const body = {
-      amount: Number(amount).toFixed(2),
-      currency: 'USDT',
-      order_id: orderId,
-      url_callback: `${req.protocol}://${req.get('host')}/api/usdt/webhook`
-    };
-    const r = await axios.post('https://api.cryptomus.com/v1/payment', body, {
-      headers: {
-        'merchant': process.env.CRYPTOMUS_MERCHANT,
-        'sign': cryptomusSign(body),
-        'Content-Type': 'application/json'
-      }
-    });
-    res.json({ success: true, invoiceUrl: r.data.result.url, invoiceId: r.data.result.uuid });
+    const response = await axios.post(JAP_URL, { key: JAP_KEY, action: 'services' });
+    const services = response.data;
+    /* Clear o re-insert (import fresh) */
+    await pool.query('DELETE FROM services');
+    for (const s of services) {
+      await pool.query(
+        'INSERT INTO services (jap_id, category, name, type, rate, min, max, my_price) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (jap_id) DO NOTHING',
+        [s.service, s.category, s.name, s.type, parseFloat(s.rate), parseInt(s.min), parseInt(s.max), (parseFloat(s.rate) * 3).toFixed(2)]
+      );
+    }
+    res.json({ success: true, count: services.length });
   } catch (err) {
-    console.error('Cryptomus error:', err.response?.data || err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-/* USDT Webhook — Cryptomus kay3ayet lina mnin client ykhles */
-app.post('/api/usdt/webhook', async (req, res) => {
+app.get('/api/services', async (req, res) => {
   try {
-    const data = req.body;
-    console.log('USDT Webhook:', data);
-    if (data.status === 'paid' || data.status === 'paid_over') {
-      const db = loadDB();
-      const order = db.orders.find(o => o.id === data.order_id);
-      if (order && order.status === 'Pending') {
-        order.status = 'In Progress';
-        order.paidAt = new Date().toISOString();
-        /* Launch order f JAP automatiquement! */
-        const jap = await createJAPOrder(order.serviceJapId, order.link, order.quantity);
-        if (jap.order) {
-          order.japOrderId = jap.order;
-          order.japCost = (order.quantity / 1000) * (order.japRate || 0);
-        }
-        saveDB(db);
-      }
-    }
-    res.json({ success: true });
+    const r = await pool.query('SELECT jap_id, category, name, type, rate, min, max, my_price FROM services ORDER BY jap_id ASC');
+    const services = r.rows.map(s => ({
+      japId: s.jap_id, category: s.category, name: s.name,
+      type: s.type, rate: parseFloat(s.rate), min: s.min, max: s.max,
+      myPrice: parseFloat(s.my_price)
+    }));
+    res.json(services);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-/* ================================================================
-   🌐 API ROUTES L SITE
-   ================================================================ */
-
-/* ---------- SERVICES ---------- */
-
-/* ---------- MANUAL PAYMENT CLAIMS (Binance/USDT/Transfer) ---------- */
-app.post('/api/claim-payment', (req, res) => {
-  try {
-    const { orderId, method, paymentRef } = req.body;
-    const db = loadDB();
-    const order = db.orders.find(o => o.id === orderId);
-    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
-    order.method = method;
-    order.payRef = paymentRef || '';
-    order.status = 'Awaiting Verification';
-    saveDB(db);
-    res.json({ success: true, order });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/* Import services mn JAP (1 click f Admin!) */
-app.get('/api/import-services', async (req, res) => {
-  try {
-    const japServices = await importJAPServices();
-    const db = loadDB();
-    const margin = db.settings.margin || 3.0;
-    db.services = japServices.map(s => ({
-      japId: s.service,
-      category: s.category,
-      name: s.name,
-      type: s.type,
-      rate: parseFloat(s.rate),
-      min: parseInt(s.min),
-      max: parseInt(s.max),
-      myPrice: (parseFloat(s.rate) * margin).toFixed(2)
-    }));
-    saveDB(db);
-    res.json({ success: true, count: db.services.length });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/* Get services (l site) */
-app.get('/api/services', (req, res) => {
-  const db = loadDB();
-  res.json(db.services);
-});
-
-/* Update margin (kol prices kaytbdlo automatiquement) */
-app.post('/api/update-margin', (req, res) => {
-  const { margin } = req.body;
-  const db = loadDB();
-  db.settings.margin = parseFloat(margin);
-  db.services = db.services.map(s => ({
-    ...s,
-    myPrice: (s.rate * margin).toFixed(2)
-  }));
-  saveDB(db);
-  res.json({ success: true, count: db.services.length });
-});
-
-/* Update price dyal service wa7ed */
-app.post('/api/update-price', (req, res) => {
-  const { japId, newPrice } = req.body;
-  const db = loadDB();
-  const svc = db.services.find(s => s.japId == japId);
-  if (!svc) return res.status(404).json({ success: false });
-  svc.myPrice = parseFloat(newPrice);
-  saveDB(db);
-  res.json({ success: true });
-});
-
 /* ---------- ORDERS ---------- */
-
-/* Create order — PAYMENT FIRST, THEN JAP AUTOMATIC */
 app.post('/api/create-order', async (req, res) => {
   try {
     const { serviceJapId, link, quantity } = req.body;
-    const db = loadDB();
-    const svc = db.services.find(s => s.japId == serviceJapId);
+    const sr = await pool.query('SELECT * FROM services WHERE jap_id = $1', [serviceJapId]);
+    const svc = sr.rows[0];
     if (!svc) return res.status(404).json({ success: false, error: 'Service not found' });
 
-    const amount = ((quantity / 1000) * svc.myPrice).toFixed(2);
+    const amount = ((quantity / 1000) * parseFloat(svc.my_price)).toFixed(2);
     const orderId = 'ORD-' + Date.now();
 
-    const order = {
-      id: orderId,
-      serviceJapId,
-      serviceName: svc.name,
-      link, quantity: parseInt(quantity),
-      amount: parseFloat(amount),
-      japRate: svc.rate,
-      method: 'pending',
-      status: 'Pending',
-      createdAt: new Date().toISOString()
-    };
-    db.orders.push(order);
-    saveDB(db);
-
+    await pool.query(
+      'INSERT INTO orders (id, service_jap_id, service_name, link, quantity, amount, jap_rate, method, status, date) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [orderId, serviceJapId, svc.name, link, parseInt(quantity), amount, parseFloat(svc.rate), 'pending', 'Pending', new Date().toLocaleString()]
+    );
     res.json({ success: true, orderId, amount: parseFloat(amount) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-/* Client ykhles — PayPal capture → order ymchi l JAP automatiquement */
 app.post('/api/pay-order', async (req, res) => {
   try {
     const { orderId, method, paymentRef } = req.body;
-    const db = loadDB();
-    const order = db.orders.find(o => o.id === orderId);
+    const or = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+    const order = or.rows[0];
     if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
 
-    let paid = false;
-
-    /* PayPal: verify capture server-side */
-    if (method === 'paypal') {
-      const v = await verifyPayPalCapture(paymentRef);
-      if (v.success && v.amount >= order.amount) paid = true;
+    /* Verify PayPal capture */
+    try {
+      const token = await getPayPalAccessToken();
+      const cap = await axios.get(`https://api-m.paypal.com/v2/payments/captures/${paymentRef}`,
+        { headers: { 'Authorization': `Bearer ${token}` } });
+      if (cap.data.status !== 'COMPLETED') {
+        return res.status(400).json({ success: false, error: 'Payment not completed' });
+      }
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Payment verification failed: ' + e.message });
     }
 
-    if (!paid) {
-      return res.status(400).json({ success: false, error: 'Payment verification failed' });
+    /* Launch f JAP automatiquement */
+    const jap = await createJAPOrder(order.service_jap_id, order.link, order.quantity);
+    let status = 'Pending Manual', japOrderId = null, japCost = null;
+    if (jap.success) {
+      japOrderId = jap.japOrderId;
+      japCost = ((order.quantity / 1000) * parseFloat(order.jap_rate)).toFixed(2);
+      status = 'In Progress';
     }
 
-    /* ✅ PAID — Launch f JAP automatiquement! */
-    order.method = 'paypal';
-    order.payRef = paymentRef;
-    order.paidAt = new Date().toISOString();
-
-    const jap = await createJAPOrder(order.serviceJapId, order.link, order.quantity);
-    if (jap.order) {
-      order.japOrderId = jap.order;
-      order.japCost = ((order.quantity / 1000) * order.japRate).toFixed(2);
-      order.status = 'In Progress';
-    } else {
-      order.status = 'Pending Manual';
-      order.japError = JSON.stringify(jap);
-    }
-    saveDB(db);
-
-    res.json({ success: true, order });
+    await pool.query(
+      'UPDATE orders SET method=$1, status=$2, pay_ref=$3, jap_order_id=$4, jap_cost=$5, paid_at=NOW() WHERE id=$6',
+      [method, status, paymentRef, japOrderId, japCost, orderId]
+    );
+    res.json({ success: true, order: { id: orderId, status, amount: order.amount } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-async function verifyPayPalCapture(captureId) {
+app.post('/api/claim-payment', async (req, res) => {
   try {
-    const token = await getPayPalAccessToken();
-    const r = await axios.get(`https://api-m.paypal.com/v2/payments/captures/${captureId}`,
-      { headers: { 'Authorization': `Bearer ${token}` } });
-    const cap = r.data;
-    if (cap.status === 'COMPLETED') {
-      return { success: true, amount: parseFloat(cap.amount.value) };
-    }
-    return { success: false };
+    const { orderId, method, paymentRef } = req.body;
+    await pool.query('UPDATE orders SET method=$1, status=$2, pay_ref=$3 WHERE id=$4',
+      [method, 'Awaiting Verification', paymentRef || '', orderId]);
+    res.json({ success: true });
   } catch (err) {
-    return { success: false, error: err.message };
+    res.status(500).json({ success: false, error: err.message });
   }
-}
-
-/* Get orders (admin) */
-app.get('/api/orders', (req, res) => {
-  const db = loadDB();
-  res.json(db.orders.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)));
 });
 
-/* Check order status mn JAP (automatic every 5 min) */
+app.get('/api/orders', async (req, res) => {
+  const r = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
+  res.json(r.rows);
+});
+
 app.get('/api/order-status/:orderId', async (req, res) => {
-  const db = loadDB();
-  const order = db.orders.find(o => o.id === req.params.orderId);
-  if (!order || !order.japOrderId) return res.status(404).json({ error: 'Not found' });
-  const status = await checkJAPStatus(order.japOrderId);
-  if (status.status) {
-    order.japStatus = status.status;
-    if (status.status === 'Completed') order.status = 'Completed';
-    if (status.status === 'Canceled') order.status = 'Canceled';
-    saveDB(db);
+  try {
+    const r = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.orderId]);
+    const order = r.rows[0];
+    if (!order) return res.status(404).json({ error: 'Not found' });
+    res.json({
+      id: order.id, serviceName: order.service_name, quantity: order.quantity,
+      amount: order.amount, method: order.method, status: order.status, date: order.date
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json(order);
 });
 
 /* ---------- ADMIN ---------- */
-
-/* Admin login */
 app.post('/api/admin/login', (req, res) => {
-  if (req.body.password === process.env.ADMIN_PASSWORD) {
-    res.json({ success: true });
-  } else {
-    res.status(401).json({ success: false, error: 'Wrong password' });
-  }
+  if (req.body.password === process.env.ADMIN_PASSWORD) res.json({ success: true });
+  else res.status(401).json({ success: false, error: 'Wrong password' });
 });
 
-/* Admin stats */
-app.get('/api/admin/stats', (req, res) => {
-  res.json(getStats());
+app.get('/api/admin/stats', async (req, res) => {
+  const r = await pool.query('SELECT COUNT(*) as total, COALESCE(SUM(CASE WHEN status IN (\'In Progress\',\'Completed\') THEN amount ELSE 0 END),0) as revenue FROM orders');
+  res.json({ totalOrders: parseInt(r.rows[0].total), revenue: parseFloat(r.rows[0].revenue) });
 });
 
-/* JAP balance */
-app.get('/api/admin/jap-balance', async (req, res) => {
-  try {
-    const b = await getJAPBalance();
-    res.json({ success: true, balance: b.balance, currency: b.currency });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/* Health */
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
 /* ================================================================
-   🔄 AUTO-CHECK: kol 5 minutes check JAP status
+   🔄 AUTO-CHECK JAP (kol 5 min)
    ================================================================ */
 setInterval(async () => {
   try {
-    const db = loadDB();
-    let updated = 0;
-    for (const order of db.orders) {
-      if (order.japOrderId && ['In Progress', 'Processing'].includes(order.status)) {
-        try {
-          const s = await checkJAPStatus(order.japOrderId);
-          if (s.status === 'Completed') { order.status = 'Completed'; order.completedAt = new Date().toISOString(); updated++; }
-          if (s.status === 'Canceled') { order.status = 'Canceled'; updated++; }
-        } catch(e) { /* skip */ }
+    const r = await pool.query('SELECT id, jap_order_id FROM orders WHERE jap_order_id IS NOT NULL AND status = \'In Progress\'');
+    for (const order of r.rows) {
+      const s = await checkJAPStatus(order.jap_order_id);
+      if (s.status === 'Completed') {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['Completed', order.id]);
+      } else if (s.status === 'Canceled') {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['Canceled', order.id]);
       }
     }
-    if (updated > 0) saveDB(db);
-  } catch(e) { console.error('Auto-check error:', e.message); }
+  } catch(e) { console.error('Auto-check:', e.message); }
 }, 5 * 60 * 1000);
 
 /* ================================================================
    🚀 START
    ================================================================ */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log('═══════════════════════════════════════════');
-  console.log('  🔥 SocialBoost Backend — RUNNING');
-  console.log(`  → http://localhost:${PORT}`);
-  console.log('═══════════════════════════════════════════');
+initDB().then(() => {
+  app.listen(PORT, () => {
+    console.log('═══════════════════════════════════════════');
+    console.log('  🔥 SocialBoost + PostgreSQL — RUNNING');
+    console.log(`  → Port ${PORT}`);
+    console.log('═══════════════════════════════════════════');
+  });
+}).catch(err => {
+  console.error('❌ DB init failed:', err.message);
+  process.exit(1);
 });
