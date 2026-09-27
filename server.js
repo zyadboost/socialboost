@@ -9,44 +9,62 @@ app.use(express.json());
 app.use(express.static('public'));
 
 /* ================================================================
-   🐘 POSTGRESQL DATABASE (dima msjjela — ma ytmss7 walo!)
+   🐘 POSTGRESQL (with retry + clear errors)
    ================================================================ */
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false }
-});
+let pool = null;
 
-/* Sayeb les tables automatiquement f awal marra */
-async function initDB() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS services (
-      jap_id INTEGER PRIMARY KEY,
-      category TEXT,
-      name TEXT,
-      type TEXT,
-      rate NUMERIC,
-      min INTEGER,
-      max INTEGER,
-      my_price NUMERIC
-    );
-    CREATE TABLE IF NOT EXISTS orders (
-      id TEXT PRIMARY KEY,
-      service_jap_id INTEGER,
-      service_name TEXT,
-      link TEXT,
-      quantity INTEGER,
-      amount NUMERIC,
-      jap_rate NUMERIC,
-      method TEXT,
-      status TEXT,
-      pay_ref TEXT,
-      jap_order_id TEXT,
-      jap_cost NUMERIC,
-      date TEXT,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-  `);
-  console.log('✅ Database tables ready');
+function initPool() {
+  const cs = process.env.DATABASE_URL;
+  if (!cs) throw new Error('DATABASE_URL is not set!');
+  console.log('DB: connecting to:', cs.replace(/:[^:@]+@/, ':****@'));
+  pool = new Pool({
+    connectionString: cs,
+    ssl: { rejectUnauthorized: false },
+    max: 5,
+    connectionTimeoutMillis: 15000
+  });
+  pool.on('error', (e) => console.error('PG pool error:', e.message));
+}
+
+async function initDB(retries = 10) {
+  for (let i = 1; i <= retries; i++) {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS services (
+          jap_id INTEGER PRIMARY KEY,
+          category TEXT,
+          name TEXT,
+          type TEXT,
+          rate NUMERIC,
+          min INTEGER,
+          max INTEGER,
+          my_price NUMERIC
+        );
+        CREATE TABLE IF NOT EXISTS orders (
+          id TEXT PRIMARY KEY,
+          service_jap_id INTEGER,
+          service_name TEXT,
+          link TEXT,
+          quantity INTEGER,
+          amount NUMERIC,
+          jap_rate NUMERIC,
+          method TEXT,
+          status TEXT,
+          pay_ref TEXT,
+          jap_order_id TEXT,
+          jap_cost NUMERIC,
+          date TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      console.log('✅ Database tables ready');
+      return;
+    } catch (err) {
+      console.error(`DB init attempt ${i}/${retries} failed:`, err.message);
+      if (i === retries) throw err;
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
 }
 
 /* ================================================================
@@ -90,13 +108,10 @@ async function getPayPalAccessToken() {
 /* ================================================================
    🌐 ROUTES
    ================================================================ */
-
-/* ---------- SERVICES ---------- */
 app.get('/api/import-services', async (req, res) => {
   try {
     const response = await axios.post(JAP_URL, { key: JAP_KEY, action: 'services' });
     const services = response.data;
-    /* Clear o re-insert (import fresh) */
     await pool.query('DELETE FROM services');
     for (const s of services) {
       await pool.query(
@@ -124,7 +139,6 @@ app.get('/api/services', async (req, res) => {
   }
 });
 
-/* ---------- ORDERS ---------- */
 app.post('/api/create-order', async (req, res) => {
   try {
     const { serviceJapId, link, quantity } = req.body;
@@ -152,7 +166,6 @@ app.post('/api/pay-order', async (req, res) => {
     const order = or.rows[0];
     if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
 
-    /* Verify PayPal capture */
     try {
       const token = await getPayPalAccessToken();
       const cap = await axios.get(`https://api-m.paypal.com/v2/payments/captures/${paymentRef}`,
@@ -164,7 +177,6 @@ app.post('/api/pay-order', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Payment verification failed: ' + e.message });
     }
 
-    /* Launch f JAP automatiquement */
     const jap = await createJAPOrder(order.service_jap_id, order.link, order.quantity);
     let status = 'Pending Manual', japOrderId = null, japCost = null;
     if (jap.success) {
@@ -213,7 +225,6 @@ app.get('/api/order-status/:orderId', async (req, res) => {
   }
 });
 
-/* ---------- ADMIN ---------- */
 app.post('/api/admin/login', (req, res) => {
   if (req.body.password === process.env.ADMIN_PASSWORD) res.json({ success: true });
   else res.status(401).json({ success: false, error: 'Wrong password' });
@@ -244,17 +255,22 @@ setInterval(async () => {
 }, 5 * 60 * 1000);
 
 /* ================================================================
-   🚀 START
+   🚀 START (with retry — Postgres ymken ykoun mazal kay-feq)
    ================================================================ */
 const PORT = process.env.PORT || 3000;
-initDB().then(() => {
+
+async function start() {
+  initPool();
+  await initDB(10); /* 10 attempts × 5 sec = 50 sec max wait */
   app.listen(PORT, () => {
     console.log('═══════════════════════════════════════════');
     console.log('  🔥 SocialBoost + PostgreSQL — RUNNING');
     console.log(`  → Port ${PORT}`);
     console.log('═══════════════════════════════════════════');
   });
-}).catch(err => {
-  console.error('❌ DB init failed:', err.message);
+}
+
+start().catch(err => {
+  console.error('❌ START FAILED:', err.message);
   process.exit(1);
 });
