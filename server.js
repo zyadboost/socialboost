@@ -17,7 +17,6 @@ function initPool() {
   let cs = process.env.POSTGRES_URL_PRIVATE || process.env.DATABASE_URL;
   if (!cs) throw new Error('DATABASE_URL is not set!');
   /* Force hostname — never allow wrong host (base, xxxx...) */
-  cs = cs.replace(/@[^@:]+:/, '@postgres.railway.internal:');
   console.log('DB: connecting to:', cs.replace(/:[^:@]+@/, ':****@'));
   pool = new Pool({
     connectionString: cs,
