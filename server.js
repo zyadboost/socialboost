@@ -14,7 +14,7 @@ app.use(express.static('public'));
 let pool = null;
 
 function initPool() {
-  let cs = process.env.DATABASE_URL;
+  let cs = process.env.POSTGRES_URL_PRIVATE || process.env.DATABASE_URL;
   if (!cs) throw new Error('DATABASE_URL is not set!');
   /* Force hostname — never allow wrong host (base, xxxx...) */
   cs = cs.replace(/@[^@:]+:/, '@postgres.railway.internal:');
