@@ -77,6 +77,18 @@ async function getPayPalAccessToken() {
 
 let importRunning = false;
 let importCount = 0;
+/* 💰 Smart pricing: higher margin on cheap services + minimum floor */
+function calcMyPrice(rate) {
+  const r = parseFloat(rate);
+  let margin;
+  if (r < 0.05) margin = 8;        // views (cheap) → 8x
+  else if (r < 0.30) margin = 4;   // likes → 4x
+  else if (r < 1.00) margin = 3;   // followers → 3x
+  else margin = 2.5;               // expensive → 2.5x
+  let p = r * margin;
+  if (p < 0.15) p = 0.15;          // minimum $0.15 / 1000
+  return p.toFixed(2);
+}
 
 app.get('/api/import-services', async (req, res) => {
   if (importRunning) {
