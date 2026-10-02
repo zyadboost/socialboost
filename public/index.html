@@ -456,7 +456,7 @@ function tryRenderPayPal(){
   clearTimeout(ppRenderTO);
   ppRenderTO=setTimeout(()=>ppStatus('❌ PayPal stuck — use Binance / USDT / Transfer.',true),30000);
   paypal.Buttons({
-    style:{layout:'vertical',color:'gold',shape:'rect',label:'paypal',height:'45'},
+    style:{layout:'vertical',color:'gold',shape:'rect',label:'paypal',height:'45},
     async createOrder(){
       const po=await createPendingOrder();
       if(!po) throw new Error('Order failed');
