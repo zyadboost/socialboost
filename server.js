@@ -109,9 +109,35 @@ app.get('/api/import-services', async (req, res) => {
       batch.forEach((s, j) => {
         const base = j * 8;
         values.push('($' + (base+1) + ',$' + (base+2) + ',$' + (base+3) + ',$' + (base+4) + ',$' + (base+5) + ',$' + (base+6) + ',$' + (base+7) + ',$' + (base+8) + ')');
-           const myPrice = calcMyPrice(s.rate);
-        params.push(s.service, s.category, s.name, s.type, parseFloat(s.rate), parseInt(s.min), parseInt(s.max), myPrice);
-      });
+               /* 🧹 Clean name: hayyad les tags technique */
+        let cleanName = (s.name || '')
+          .replace(/&amp;/g, '&')
+          .replace(/\s*\[(?:Read Description|READ DESCRIPTION|READ DESCRIPTION)\]/gi, '')
+          .replace(/(?:\s*\[(?:Max:?\s*[0-9.]+\s*[KM]?)\])+/gi, '')
+          .replace(/(?:\s*\[(?:Start Time:?\s*[^\]]*)\])+/gi, '')
+          .replace(/(?:\s*\[(?:Speed:?\s*[^\]]*)\])+/gi, '')
+          .replace(/(?:\s*\[(?:Refill:?\s*[^\]]*)\])+/gi, '')
+          .replace(/\s*\[(?:SPAM\s*(?:ON|OFF)|FLAG\s*OFF|WORKING(?:\s*AFTER\s*UPDATE)?)\]/gi, '')
+          .replace(/\s*(?:💧⛔️?|⛔💧|💧⛔|♻️💧⛔|♻️💧|💧|⛔️?|🔥)\s*/g, ' ')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+
+        /* 🚫 Skip services khaybin (BOTS, PRANK, Not Guaranteed, etc) */
+        const bad = /bots?\b|prank|not guaranteed|can fully drop|high drop|[\d]+\s*%\s*drop|drop\]|no refill.*no refund/i.test(s.name + ' ' + (s.category || ''));
+        if (bad) return; /* skip — ma tzadch f site */
+
+        /* 📦 Category m3a9la: Followers / Likes / Views / baqi */
+        let cat = s.category || 'Instagram';
+        if (/followers/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Followers';
+        else if (/likes/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Likes';
+        else if (/views/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Views';
+        else if (/comments/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Comments';
+        else if (/story/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Story';
+        else if (/reels/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Reels';
+        const cleanCat = cat.replace(/\s{2,}/g,' ').trim();
+  
+        const myPrice = calcMyPrice(s.rate);
+        params.push(s.service, cleanCat, cleanName, s.type, parseFloat(s.rate), parseInt(s.min), parseInt(s.max), myPrice);      });
       await pool.query('INSERT INTO services (jap_id, category, name, type, rate, min, max, my_price) VALUES ' + values.join(',') + ' ON CONFLICT (jap_id) DO NOTHING', params);
       importCount = Math.min(i + 100, services.length);
       console.log('Import progress: ' + importCount + '/' + services.length);
