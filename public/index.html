@@ -371,11 +371,24 @@ function renderCats(){
     </div>`).join('');
 }
 
+/* 🎯 Service type ordering (JAP style) */
+const TYPE_ORDER = ['Followers','Subscribers','Members','Likes','Reactions','Views','Story','Reels','Comments','Shares','Saves','Mentions','Impressions','Reach','Poll','Reviews','Traffic','Visits','Hours','Watch'];
+function typeOfService(s){
+  const n = (s.name||'').toLowerCase() + ' ' + (s.category||'').toLowerCase();
+  for (let i=0;i<TYPE_ORDER.length;i++){
+    if (n.indexOf(TYPE_ORDER[i].toLowerCase()) !== -1) return i;
+  }
+  return TYPE_ORDER.length; /* others last */
+}
 function openCat(cat){
   activeCat = cat;
   renderCats();
   const list = SERVICES.filter(s=>platformOf(s.category)===cat)
-    .sort((a,b)=>parseFloat(a.myPrice)-parseFloat(b.myPrice));
+    .sort((a,b)=>{
+      const ta = typeOfService(a), tb = typeOfService(b);
+      if (ta !== tb) return ta - tb;              /* type order first */
+      return parseFloat(a.myPrice) - parseFloat(b.myPrice); /* then price */
+    });
   $('svc-title').textContent = cat + ' Services';
   $('svc-sub').textContent = list.length + ' services available';
   $('svc-grid').innerHTML = list.slice(0,60).map(s=>`
