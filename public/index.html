@@ -428,9 +428,18 @@ function openCat(cat){
     });
   $('svc-title').textContent = cat + ' Services';
   $('svc-sub').textContent = list.length + ' services available';
-  $('svc-grid').innerHTML = list.slice(0,60).map(s=>`
+   /* 🛡️ Guaranteed services first, then others */
+  const isGuaranteed = (s) => /guaranteed|refill:\s*\d+/i.test(s.name || '') && !/not guaranteed/i.test(s.name || '');
+  const guaranteed = list.filter(isGuaranteed);
+  const others = list.filter(s => !isGuaranteed(s));
+  const sorted = [...guaranteed, ...others];
+
+  $('svc-grid').innerHTML = sorted.slice(0,80).map(s=>`
     <div class="svc-card" onclick="openOrder(${s.japId})">
       <div class="svc-head">${logoHtml(cat,38)}<b>${esc(s.name)}</b></div>
+      ${isGuaranteed(s)
+        ? '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:var(--green);font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:20px;margin-bottom:8px">🛡️ GUARANTEED · Refill</div>'
+        : '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(245,197,24,.1);border:1px solid rgba(245,197,24,.3);color:#f5c518;font-size:.7rem;font-weight:600;padding:3px 10px;border-radius:20px;margin-bottom:8px">⚠️ No refill — cheaper</div>'}
       <div class="desc">${esc(s.category)}</div>
       <div class="svc-foot">
         <span class="price">${money(s.myPrice)} / 1000</span>
