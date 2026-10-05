@@ -420,39 +420,48 @@ function typeOfService(s){
 function openCat(cat){
   activeCat = cat;
   renderCats();
-  const list = SERVICES.filter(s=>platformOf(s.category)===cat)
-    .sort((a,b)=>{
-      const ta = typeOfService(a), tb = typeOfService(b);
-      if (ta !== tb) return ta - tb;              /* type order first */
-      return parseFloat(a.myPrice) - parseFloat(b.myPrice); /* then price */
-    });
-  $('svc-title').textContent = cat + ' Services';
-  $('svc-sub').textContent = list.length + ' services available';
-   /* 🛡️ Guaranteed services first, then others */
-  const isGuaranteed = (s) => /guaranteed|refill:\s*\d+/i.test(s.name || '') && !/not guaranteed/i.test(s.name || '');
-  const guaranteed = list.filter(isGuaranteed);
-  const others = list.filter(s => !isGuaranteed(s));
-  const sorted = [...guaranteed, ...others];
-
-    window._allSorted = sorted;
-  const isGuaranteed = (s) => /guaranteed|refill:\s*\d+/i.test(s.name || '') && !/not guaranteed/i.test(s.name || '');
-  const guaranteed = list.filter(isGuaranteed);
-  const others = list.filter(s => !isGuaranteed(s));
-  const sorted = [...guaranteed, ...others];
+  const list = SERVICES.filter(s=>platformOf(s.category)===cat);
+  /* 🛡️ Guaranteed first */
+  const isG = (s) => /guaranteed|refill:\s*\d+/i.test(s.name||'') && !/not guaranteed/i.test(s.name||'');
+  const sorted = [...list.filter(isG), ...list.filter(s=>!isG(s))];
   window._allSorted = sorted;
-  $('svc-grid').innerHTML = sorted.slice(0,80).map(renderSvcCard).join('');
-  window._svcShown = 80;
-  if (sorted.length > 80) {
-    $('svc-grid').insertAdjacentHTML('beforeend', '<button class="btn btn-sm btn-full" style="margin-top:16px" onclick="loadMoreSvc()">📥 Load More (' + (sorted.length - 80) + ' more)</button>');
-  }
+  window._svcShown = 0;
+  $('svc-title').textContent = cat + ' Services';
+  $('svc-sub').textContent = sorted.length + ' services available';
+  $('svc-grid').innerHTML = '';
+  loadMoreSvc();
   $('svc-sec').style.display='block';
-   if (sorted.length > 80) {
-    $('svc-grid').insertAdjacentHTML('beforeend', '<button class="btn btn-sm btn-full" style="margin-top:16px" onclick="loadMoreSvc()">📥 Load More (' + (sorted.length - 80) + ' more)</button>');
-  }
-  window._svcShown = 80; $('svc-sec').style.display='block';
   $('services').scrollIntoView({behavior:'smooth'});
 }
-function backToCats(){
+function renderSvcCard(s){
+  const g = /guaranteed|refill:\s*\d+/i.test(s.name||'') && !/not guaranteed/i.test(s.name||'');
+  const badge = g
+    ? '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:var(--green);font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:20px;margin-bottom:8px">🛡️ GUARANTEED · Refill</div>'
+    : '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(245,197,24,.1);border:1px solid rgba(245,197,24,.3);color:#f5c518;font-size:.7rem;font-weight:600;padding:3px 10px;border-radius:20px;margin-bottom:8px">⚠️ No refill — cheaper</div>';
+  return `
+    <div class="svc-card" onclick="openOrder(${s.japId})">
+      <div class="svc-head">${logoHtml(platformOf(s.category),38)}<b>${esc(s.name)}</b></div>
+      ${badge}
+      <div class="desc">${esc(s.category)}</div>
+      <div class="svc-foot">
+        <span class="price">${money(s.myPrice)} / 1000</span>
+        <span class="range">${(+s.min).toLocaleString()}–${(+s.max).toLocaleString()}</span>
+      </div>
+    </div>`;
+}
+function loadMoreSvc(){
+  if(!window._allSorted) return;
+  const btn = $('svc-grid').querySelector('button.btn-full');
+  if (btn) btn.remove();
+  const next = window._allSorted.slice(window._svcShown, window._svcShown + 60);
+  $('svc-grid').insertAdjacentHTML('beforeend', next.map(renderSvcCard).join(''));
+  window._svcShown += next.length;
+  const remaining = window._allSorted.length - window._svcShown;
+  if (remaining > 0) {
+    $('svc-grid').insertAdjacentHTML('beforeend',
+      '<button class="btn btn-sm btn-full" style="margin-top:16px" onclick="loadMoreSvc()">📥 Load More — ' + remaining + ' services left</button>');
+  }
+}
   activeCat = null; renderCats();
   $('svc-sec').style.display='none';
   $('services').scrollIntoView({behavior:'smooth'});
