@@ -229,6 +229,32 @@ app.post('/api/pay-order', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+/* 👑 ADMIN: Confirm manual payment → launch JAP order */
+app.get('/api/admin/confirm/:orderId', async (req, res) => {
+  try {
+    if (req.query.key !== process.env.ADMIN_PASSWORD) {
+      return res.status(403).json({ success: false, error: 'Wrong admin key' });
+    }
+    const orderId = req.params.orderId;
+    const or = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+    const order = or.rows[0];
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+
+    const jap = await createJAPOrder(order.service_jap_id, order.link, order.quantity);
+    let status = 'Pending Manual', japOrderId = null;
+    if (jap.success) {
+      japOrderId = jap.japOrderId;
+      status = 'In Progress';
+    }
+    await pool.query(
+      'UPDATE orders SET status=$1, jap_order_id=$2, method=$3, paid_at=NOW() WHERE id=$4',
+      [status, japOrderId, order.method || 'usdt', orderId]
+    );
+    res.json({ success: true, order: { id: orderId, status: status, japOrderId: japOrderId } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 app.post('/api/claim-payment', async (req, res) => {
   try {
