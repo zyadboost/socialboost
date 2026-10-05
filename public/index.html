@@ -434,19 +434,22 @@ function openCat(cat){
   const others = list.filter(s => !isGuaranteed(s));
   const sorted = [...guaranteed, ...others];
 
-  $('svc-grid').innerHTML = sorted.slice(0,80).map(s=>`
-    <div class="svc-card" onclick="openOrder(${s.japId})">
-      <div class="svc-head">${logoHtml(cat,38)}<b>${esc(s.name)}</b></div>
-      ${isGuaranteed(s)
-        ? '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:var(--green);font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:20px;margin-bottom:8px">🛡️ GUARANTEED · Refill</div>'
-        : '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(245,197,24,.1);border:1px solid rgba(245,197,24,.3);color:#f5c518;font-size:.7rem;font-weight:600;padding:3px 10px;border-radius:20px;margin-bottom:8px">⚠️ No refill — cheaper</div>'}
-      <div class="desc">${esc(s.category)}</div>
-      <div class="svc-foot">
-        <span class="price">${money(s.myPrice)} / 1000</span>
-        <span class="range">${(+s.min).toLocaleString()}–${(+s.max).toLocaleString()}</span>
-      </div>
-    </div>`).join('');
+    window._allSorted = sorted;
+  const isGuaranteed = (s) => /guaranteed|refill:\s*\d+/i.test(s.name || '') && !/not guaranteed/i.test(s.name || '');
+  const guaranteed = list.filter(isGuaranteed);
+  const others = list.filter(s => !isGuaranteed(s));
+  const sorted = [...guaranteed, ...others];
+  window._allSorted = sorted;
+  $('svc-grid').innerHTML = sorted.slice(0,80).map(renderSvcCard).join('');
+  window._svcShown = 80;
+  if (sorted.length > 80) {
+    $('svc-grid').insertAdjacentHTML('beforeend', '<button class="btn btn-sm btn-full" style="margin-top:16px" onclick="loadMoreSvc()">📥 Load More (' + (sorted.length - 80) + ' more)</button>');
+  }
   $('svc-sec').style.display='block';
+   if (sorted.length > 80) {
+    $('svc-grid').insertAdjacentHTML('beforeend', '<button class="btn btn-sm btn-full" style="margin-top:16px" onclick="loadMoreSvc()">📥 Load More (' + (sorted.length - 80) + ' more)</button>');
+  }
+  window._svcShown = 80; $('svc-sec').style.display='block';
   $('services').scrollIntoView({behavior:'smooth'});
 }
 function backToCats(){
@@ -946,7 +949,30 @@ function renderCats(){
   SERVICES.forEach(s => { const p = platformOf(s.category); catCount[p] = (catCount[p]||0)+1; });
   const cats = Object.keys(catCount).sort((a,b)=>catCount[b]-catCount[a]);
   $('cat-grid').innerHTML = cats.map(c=>`
-    <div class="cat-card ${activeCat===c?'active':''}" onclick="openCat('${esc(c).replace(/'/g,"\\'")}')">
+    <div class="cat-card ${activeCat===c?'active':''}" onclick=function loadMoreSvc(){
+  if(!window._allSorted) return;
+  const next = window._allSorted.slice(window._svcShown, window._svcShown + 80);
+  const btn = $('svc-grid').querySelector('button');
+  if (btn) btn.remove();
+  next.forEach(s=>{ /* re-render cards */ });
+  window._svcShown += 80;
+  const remaining = window._allSorted.length - window._svcShown;
+  $('svc-grid').insertAdjacentHTML('beforeend', next.map(s=>renderSvcCard(s)).join('') + (remaining > 0 ? '<button class="btn btn-sm btn-full" style="margin-top:16px" onclick="loadMoreSvc()">📥 Load More (' + remaining + ' more)</button>' : ''));
+}
+function renderSvcCard(s){
+  const g = /guaranteed|refill:\s*\d+/i.test(s.name||'') && !/not guaranteed/i.test(s.name||'');
+  return `
+    <div class="svc-card" onclick="openOrder(${s.japId})">
+      <div class="svc-head">${logoHtml(platformOf(s.category),38)}<b>${esc(s.name)}</b></div>
+      ${g ? '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:var(--green);font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:20px;margin-bottom:8px">🛡️ GUARANTEED · Refill</div>'
+          : '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(245,197,24,.1);border:1px solid rgba(245,197,24,.3);color:#f5c518;font-size:.7rem;font-weight:600;padding:3px 10px;border-radius:20px;margin-bottom:8px">⚠️ No refill — cheaper</div>'}
+      <div class="desc">${esc(s.category)}</div>
+      <div class="svc-foot">
+        <span class="price">${money(s.myPrice)} / 1000</span>
+        <span class="range">${(+s.min).toLocaleString()}–${(+s.max).toLocaleString()}</span>
+      </div>
+    </div>`;
+}"openCat('${esc(c).replace(/'/g,"\\'")}')">
       ${logoHtml(c,52)}
       <b>${esc(c)}</b>
       <small>${catCount[c]} services</small>
