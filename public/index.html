@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SocialBoost — Cheapest SMM Panel | Premium Quality</title>
-<meta name="description" content="SocialBoost — 5700+ SMM services: Instagram, TikTok, YouTube followers, likes, views. Cheapest prices, instant automatic delivery, PayPal & Crypto accepted.">
+<meta name="description" content="SocialBoost — 5700+ SMM services: Instagram, TikTok, YouTube followers, likes, views. Cheapest prices, instant automatic delivery, PayPal, Skrill & Crypto accepted.">
 <meta name="keywords" content="SMM panel, buy instagram followers, cheapest smm panel, buy likes, social media marketing, tiktok followers, youtube views">
 <meta property="og:title" content="SocialBoost — Cheapest SMM Panel">
 <meta property="og:description" content="5700+ services, instant delivery, from $0.15/1000. PayPal, Skrill & Crypto accepted.">
@@ -259,20 +259,21 @@ footer { text-align:center; padding:28px 5%; color:var(--muted); border-top:1px 
       <div class="fg"><label>Send exactly:</label><input type="text" id="bin-amount" readonly></div>
       <div class="fg"><label>Our Binance Pay ID:</label>
         <div class="copy-row"><input type="text" id="bin-id" readonly><button class="btn btn-sm" onclick="copyVal('bin-id')">📋</button></div>
+        <div class="hint">Binance app → Pay → Send → paste our Pay ID → amount → confirm</div>
       </div>
-      <div class="fg"><label>Your Binance Pay ID / email / phone:</label>
+      <div class="fg"><label>Your Binance Pay ID / email / phone (for verification):</label>
         <input type="text" id="bin-ref" placeholder="e.g. 987654321"></div>
       <button class="btn btn-green btn-full" onclick="manualClaim('binance','bin-ref')">✅ I have sent</button>
     </div>
 
     <div id="usdt-zone" class="pay-zone" style="display:none">
       <div class="fg"><label>Send exactly (5% crypto discount!):</label><input type="text" id="usdt-amount" readonly></div>
-      <div class="fg"><label>Wallet (TRC20):</label>
+      <div class="fg"><label>Wallet Address (USDT TRC20):</label>
         <div class="copy-row"><input type="text" id="usdt-wallet" readonly><button class="btn btn-sm" onclick="copyVal('usdt-wallet')">📋</button></div>
-        <div class="hint" style="color:#f5c518">⚠️ WRONG NETWORK = LOST! TRC20 only!</div>
+        <div class="hint" style="color:#f5c518">⚠️ WRONG NETWORK = LOST FOREVER! TRC20 only! (Binance → Withdraw → USDT → TRC20)</div>
       </div>
-      <div class="fg"><label>TX hash after sending:</label>
-        <input type="text" id="usdt-ref" placeholder="TX hash"></div>
+      <div class="fg"><label>TX hash after sending (from Binance → Withdraw history → TxID):</label>
+        <input type="text" id="usdt-ref" placeholder="Paste transaction hash here"></div>
       <button class="btn btn-green btn-full" onclick="manualClaim('usdt','usdt-ref')">✅ I have sent</button>
     </div>
 
@@ -280,8 +281,9 @@ footer { text-align:center; padding:28px 5%; color:var(--muted); border-top:1px 
       <div class="fg"><label>Send exactly (USD):</label><input type="text" id="ppt-amount" readonly></div>
       <div class="fg"><label>Our PayPal email:</label>
         <div class="copy-row"><input type="text" id="ppt-email" readonly><button class="btn btn-sm" onclick="copyVal('ppt-email')">📋</button></div>
+        <div class="hint" style="color:#f5c518">⚠️ Choose "Goods and Services" + put your email in the note.</div>
       </div>
-      <div class="fg"><label>Your PayPal email / name:</label>
+      <div class="fg"><label>Your PayPal email / name (for verification):</label>
         <input type="text" id="ppt-ref" placeholder="your@email.com"></div>
       <button class="btn btn-green btn-full" onclick="manualClaim('paypal-transfer','ppt-ref')">✅ I have sent</button>
     </div>
@@ -354,6 +356,15 @@ footer { text-align:center; padding:28px 5%; color:var(--muted); border-top:1px 
 <script src="https://www.paypal.com/sdk/js?client-id=BAAMBFolld6KZqav0QwhfcJjsnSx63QlOH4mW0qzxa1TCE_eih09c-UMPoZWYcORgOucatMmrAxvrBkbd0&currency=USD&intent=capture&commit=true&components=buttons"></script>
 
 <script>
+/* ================= 💳 PAYMENT CONFIG (Zyad — socialboost-store.com) ================= */
+const PAY = {
+  USDT_WALLET: 'TC8p7QAZn8eYvVydzuzr7ZJkjkgmjCzhyT',
+  USDT_NETWORK: 'TRC20',
+  BINANCE_PAY_ID: '25081669',
+  PAYPAL_EMAIL: 'younessagro@gmail.com',
+  SKRILL_EMAIL: 'younessagro@gmail.com'
+};
+
 const $ = id => document.getElementById(id);
 let SERVICES = [], selectedService = null, payMethod = 'paypal', ppTries = 0, ppRenderTO = null, activeCat = null;
 
@@ -605,10 +616,12 @@ async function checkStatus(){
   } catch(e){ $('status-result').innerHTML='<div style="color:var(--red);font-size:.85rem">❌ Error</div>'; }
 }
 
-/* Skrill + PayPal Transfer emails */
-(function(){ 
-  const e=document.getElementById('skrill-email'); if(e) e.value='younessagro@gmail.com';
-  const p=document.getElementById('ppt-email'); if(p) p.value='younessagro@gmail.com'; 
+/* ================= 💳 FILL PAYMENT ADDRESSES (auto) ================= */
+(function(){
+  const w=document.getElementById('usdt-wallet'); if(w) w.value=PAY.USDT_WALLET;
+  const b=document.getElementById('bin-id'); if(b) b.value=PAY.BINANCE_PAY_ID;
+  const p=document.getElementById('ppt-email'); if(p) p.value=PAY.PAYPAL_EMAIL;
+  const s=document.getElementById('skrill-email'); if(s) s.value=PAY.SKRILL_EMAIL;
 })();
 
 loadServices();
