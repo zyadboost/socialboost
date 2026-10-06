@@ -386,6 +386,14 @@ function esc(t){ return String(t||'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&g
 function closeModal(id){ $(id).style.display='none'; }
 function openTerms(){ $('terms-modal').style.display='flex'; }
 function termsAccepted(){ return $('terms-check') && $('terms-check').checked; }
+  
+let adminClicks = 0, adminTimer;
+function adminClicks(){
+  adminClicks++;
+  clearTimeout(adminTimer);
+  adminTimer = setTimeout(function(){ adminClicks = 0; }, 1000);
+  if(adminClicks >= 3){ adminClicks = 0; openAdminPanel(); }
+}
 
 /* ================= 👑 ADMIN (3 clicks logo) ================= */
 
