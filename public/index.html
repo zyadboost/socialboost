@@ -387,6 +387,50 @@ function closeModal(id){ $(id).style.display='none'; }
 function openTerms(){ $('terms-modal').style.display='flex'; }
 function termsAccepted(){ return $('terms-check') && $('terms-check').checked; }
 
+/* ================= 👑 ADMIN (3 clicks logo) ================= */
+let adminClicks = 0, adminTimer;
+function adminClicks(){
+  adminClicks++;
+  clearTimeout(adminTimer);
+  adminTimer = setTimeout(function(){ adminClicks = 0; }, 1000);
+  if(adminClicks >= 3){ adminClicks = 0; openAdminPanel(); }
+}
+function openAdminPanel(){ $('admin-screen').style.display='block'; }
+function adminLogin(){
+  if($('admin-pass').value === PAY.ADMIN_KEY){
+    sessionStorage.setItem('sb_admin','yes');
+    $('admin-login').style.display='none';
+    $('admin-panel').style.display='block';
+    loadAdminOrders();
+  } else alert('❌ Wrong password');
+}
+async function loadAdminOrders(){
+  try {
+    const r = await fetch('/api/orders');
+    const orders = await r.json();
+    const rev = orders.filter(function(o){ return ['In Progress','Completed'].includes(o.status); }).reduce(function(a,o){ return a+(+o.amount||0); },0);
+    $('admin-stats').innerHTML = `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 18px"><b style="color:var(--green);font-size:1.2rem">${money(rev)}</b><br><small style="color:var(--muted)">💰 Revenue</small></div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 18px"><b style="color:var(--primary);font-size:1.2rem">${orders.length}</b><br><small style="color:var(--muted)">📦 Orders</small></div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 18px"><b style="color:#f5c518;font-size:1.2rem">${orders.filter(function(o){return o.status==='Awaiting Verification';}).length}</b><br><small style="color:var(--muted)">⏳ Pending</small></div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 18px"><b style="color:var(--green);font-size:1.2rem">${orders.filter(function(o){return o.status==='Completed';}).length}</b><br><small style="color:var(--muted)">✅ Completed</small></div>`;
+    if(!orders.length){ $('admin-orders').innerHTML='<p style="color:var(--muted);text-align:center;padding:30px">No orders yet 📭</p>'; return; }
+    $('admin-orders').innerHTML = `<table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden">
+      <tr style="background:rgba(36,33,53,.9)"><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">DATE</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">ID</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">SERVICE</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">LINK</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">QTY</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">TOTAL</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">PAID WITH</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">STATUS</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">ACTION</th></tr>
+      ${orders.map(function(o){ return `<tr style="border-top:1px solid var(--border)">
+        <td style="padding:10px 8px;font-size:.75rem;white-space:nowrap">${o.date||''}</td>
+        <td style="padding:10px 8px;font-size:.75rem"><b>${(o.id||'').slice(-8)}</b></td>
+        <td style="padding:10px 8px;font-size:.78rem">${esc(o.service_name||'').slice(0,30)}…</td>
+        <td style="padding:10px 8px;font-size:.72rem"><a href="${o.link}" target="_blank" style="color:var(--primary)">${(o.link||'').replace('https://www.instagram.com/','@').slice(0,20)}</a></td>
+        <td style="padding:10px 8px;font-size:.8rem">${(+o.quantity).toLocaleString()}</td>
+        <td style="padding:10px 8px;color:var(--green);font-weight:700;font-size:.85rem">${money(o.amount)}</td>
+        <td style="padding:10px 8px;font-size:.72rem">${o.method==='usdt'?'₿ USDT':o.method==='paypal'?'🅿️ PP':o.method==='binance'?'🅿️ Binance':o.method==='skrill'?'💳 Skrill':'📧 Transfer'}</td>
+        <td style="padding:10px 8px"><span style="padding:3px 10px;border-radius:20px;font-size:.68rem;font-weight:700;background:${o.status==='In Progress'?'#1a2f45;color:#4aa8ff':o.status==='Completed'?'#0f2f24;color:var(--green)':o.status==='Awaiting Verification'?'#3a2f10;color:#f5c518':'#3a1515;color:var(--red)'};display:inline-block">${o.status}</span></td>
+        <td style="padding:10px 8px">${o.status==='Awaiting Verification'?`<a href="/api/admin/confirm/${o.id}?key=${encodeURIComponent(PAY.ADMIN_KEY)}" target="_blank" style="color:var(--green);font-weight:700;font-size:.75rem">✅ Confirm</a>`:(o.status==='In Progress'?'⏳ Delivering':o.status==='Completed'?'✅ Done':'—')}</td>
+      </tr>`; }).join('')}</table>`;
+  } catch(e){ $('admin-orders').innerHTML='<p style="color:var(--red)">Error loading orders</p>'; }
+}
+
 (function(){
   for(let i=0;i<40;i++){
     const s=document.createElement('div'); s.className='star';
@@ -447,14 +491,15 @@ async function loadServices(){
 
 function renderCats(){
   const catCount = {};
-  SERVICES.forEach(s => { const p = platformOf(s.category); catCount[p] = (catCount[p]||0)+1; });
-  const cats = Object.keys(catCount).sort((a,b)=>catCount[b]-catCount[a]);
-  $('cat-grid').innerHTML = cats.map(c=>`
-    <div class="cat-card ${activeCat===c?'active':''}" onclick="openCat('${esc(c).replace(/'/g,"\\'")}')">
+  SERVICES.forEach(function(s){ const p = platformOf(s.category); catCount[p] = (catCount[p]||0)+1; });
+  const cats = Object.keys(catCount).sort(function(a,b){ return catCount[b]-catCount[a]; });
+  $('cat-grid').innerHTML = cats.map(function(c){
+    return `<div class="cat-card ${activeCat===c?'active':''}" onclick="openCat('${esc(c).replace(/'/g,"\\'")}')">
       ${logoHtml(c,52)}
       <b>${esc(c)}</b>
       <small>${catCount[c]} services</small>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function renderSvcCard(s){
@@ -477,11 +522,11 @@ function renderSvcCard(s){
 function openCat(cat){
   activeCat = cat;
   renderCats();
-  const list = SERVICES.filter(s=>platformOf(s.category)===cat);
-  const isG = (s) => /guaranteed|refill:\s*\d+/i.test(s.name||'') && !/not guaranteed/i.test(s.name||'');
+  const list = SERVICES.filter(function(s){ return platformOf(s.category)===cat; });
+  const isG = function(s){ return /guaranteed|refill:\s*\d+/i.test(s.name||'') && !/not guaranteed/i.test(s.name||''); };
   const sorted = [
-    ...list.filter(isG).sort((a,b)=>typeOfService(a)-typeOfService(b) || parseFloat(a.myPrice)-parseFloat(b.myPrice)),
-    ...list.filter(s=>!isG(s)).sort((a,b)=>typeOfService(a)-typeOfService(b) || parseFloat(a.myPrice)-parseFloat(b.myPrice))
+    ...list.filter(isG).sort(function(a,b){ return typeOfService(a)-typeOfService(b) || parseFloat(a.myPrice)-parseFloat(b.myPrice); }),
+    ...list.filter(function(s){ return !isG(s); }).sort(function(a,b){ return typeOfService(a)-typeOfService(b) || parseFloat(a.myPrice)-parseFloat(b.myPrice); })
   ];
   window._allSorted = sorted;
   window._svcShown = 0;
@@ -514,7 +559,7 @@ function backToCats(){
 }
 
 function openOrder(japId){
-  selectedService = SERVICES.find(s=>s.japId==japId);
+  selectedService = SERVICES.find(function(s){ return s.japId==japId; });
   if(!selectedService) return;
   $('om-title').textContent = esc(selectedService.name);
   $('o-qty').min = selectedService.min;
@@ -552,7 +597,7 @@ async function createPendingOrder(){
 
 function setPay(m){
   payMethod=m;
-  ['paypal','bin','usdt','ppt','skrill'].forEach(x=>{
+  ['paypal','bin','usdt','ppt','skrill'].forEach(function(x){
     $('pm-'+x).classList.toggle('active',m===x);
     const z=$(''+x+'-zone'); if(z) z.style.display=m===x?'block':'none';
   });
@@ -573,7 +618,7 @@ function tryRenderPayPal(){
   $('paypal-buttons').innerHTML='';
   ppStatus('⏳ Preparing…');
   clearTimeout(ppRenderTO);
-  ppRenderTO=setTimeout(()=>ppStatus('❌ PayPal stuck — use Binance / USDT / Skrill.',true),30000);
+  ppRenderTO=setTimeout(function(){ ppStatus('❌ PayPal stuck — use Binance / USDT / Skrill.',true); },30000);
   paypal.Buttons({
     style:{layout:'vertical',color:'gold',shape:'rect',label:'paypal',height:45},
     async createOrder(){
@@ -587,9 +632,9 @@ function tryRenderPayPal(){
     },
     async onApprove(data){
       ppStatus('⏳ Confirming…');
-      const cap=await fetch('/api/paypal/capture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:data.orderID})}).then(r=>r.json());
+      const cap=await fetch('/api/paypal/capture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:data.orderID})}).then(function(r){ return r.json(); });
       if(!cap.success){ ppStatus('❌ Capture failed: '+cap.error,true); return; }
-      const go=await fetch('/api/pay-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:window._pendingOrder.orderId,method:'paypal',paymentRef:cap.captureId})}).then(r=>r.json());
+      const go=await fetch('/api/pay-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:window._pendingOrder.orderId,method:'paypal',paymentRef:cap.captureId})}).then(function(r){ return r.json(); });
       if(go.success){
         showSuccess(go.order.id,'Paid '+money(go.order.amount)+' — delivery starting! 🚀');
         ppStatus('✅ Paid!');
@@ -598,11 +643,11 @@ function tryRenderPayPal(){
     },
     onError(err){ console.error(err); ppStatus('❌ PayPal error — use Binance/USDT/Skrill.',true); },
     onCancel(){ ppStatus('⚠️ Canceled.',true); }
-  }).render('#paypal-buttons').then(()=>{ clearTimeout(ppRenderTO); ppStatus('✅ Fill form then click the yellow button'); })
-    .catch(e=>{ clearTimeout(ppRenderTO); ppStatus('❌ '+e.message,true); });
+  }).render('#paypal-buttons').then(function(){ clearTimeout(ppRenderTO); ppStatus('✅ Fill form then click the yellow button'); })
+    .catch(function(e){ clearTimeout(ppRenderTO); ppStatus('❌ '+e.message,true); });
 }
 
-function copyVal(id){ const v=$(id).value; if(navigator.clipboard) navigator.clipboard.writeText(v).then(()=>alert('✅ Copied!')); }
+function copyVal(id){ const v=$(id).value; if(navigator.clipboard) navigator.clipboard.writeText(v).then(function(){ alert('✅ Copied!'); }); }
 
 async function manualClaim(method,refInputId){
   const ref=$(refInputId).value.trim();
@@ -629,43 +674,6 @@ async function checkStatus(){
   } catch(e){ $('status-result').innerHTML='<div style="color:var(--red);font-size:.85rem">❌ Error</div>'; }
 }
 
-/* ================= 👑 ADMIN PANEL ================= */
-function openAdminPanel(){ $('admin-screen').style.display='block'; }
-function adminLogin(){
-  if($('admin-pass').value === PAY.ADMIN_KEY){
-    sessionStorage.setItem('sb_admin','yes');
-    $('admin-login').style.display='none';
-    $('admin-panel').style.display='block';
-    loadAdminOrders();
-  } else alert('❌ Wrong password');
-}
-async function loadAdminOrders(){
-  try {
-    const r = await fetch('/api/orders');
-    const orders = await r.json();
-    const rev = orders.filter(o=>['In Progress','Completed'].includes(o.status)).reduce((a,o)=>a+(+o.amount||0),0);
-    $('admin-stats').innerHTML = `
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 18px"><b style="color:var(--green);font-size:1.2rem">${money(rev)}</b><br><small style="color:var(--muted)">💰 Revenue</small></div>
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 18px"><b style="color:var(--primary);font-size:1.2rem">${orders.length}</b><br><small style="color:var(--muted)">📦 Orders</small></div>
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 18px"><b style="color:#f5c518;font-size:1.2rem">${orders.filter(o=>o.status==='Awaiting Verification').length}</b><br><small style="color:var(--muted)">⏳ Pending</small></div>
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 18px"><b style="color:var(--green);font-size:1.2rem">${orders.filter(o=>o.status==='Completed').length}</b><br><small style="color:var(--muted)">✅ Completed</small></div>`;
-    if(!orders.length){ $('admin-orders').innerHTML='<p style="color:var(--muted);text-align:center;padding:30px">No orders yet 📭</p>'; return; }
-    $('admin-orders').innerHTML = `<table style="width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden">
-      <tr style="background:rgba(36,33,53,.9)"><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">DATE</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">ID</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">SERVICE</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">LINK</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">QTY</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">TOTAL</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">PAID WITH</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">STATUS</th><th style="padding:11px 8px;text-align:left;font-size:.72rem;color:var(--muted)">ACTION</th></tr>
-      ${orders.map(o=>`<tr style="border-top:1px solid var(--border)">
-        <td style="padding:10px 8px;font-size:.75rem;white-space:nowrap">${o.date||''}</td>
-        <td style="padding:10px 8px;font-size:.75rem"><b>${(o.id||'').slice(-8)}</b></td>
-        <td style="padding:10px 8px;font-size:.78rem">${esc(o.service_name||'').slice(0,30)}…</td>
-        <td style="padding:10px 8px;font-size:.72rem"><a href="${o.link}" target="_blank" style="color:var(--primary)">${(o.link||'').replace('https://www.instagram.com/','@').slice(0,20)}</a></td>
-        <td style="padding:10px 8px;font-size:.8rem">${(+o.quantity).toLocaleString()}</td>
-        <td style="padding:10px 8px;color:var(--green);font-weight:700;font-size:.85rem">${money(o.amount)}</td>
-        <td style="padding:10px 8px;font-size:.72rem">${o.method==='usdt'?'₿ USDT':o.method==='paypal'?'🅿️ PP':o.method==='binance'?'🅿️ Binance':o.method==='skrill'?'💳 Skrill':'📧 Transfer'}</td>
-        <td style="padding:10px 8px"><span style="padding:3px 10px;border-radius:20px;font-size:.68rem;font-weight:700;background:${o.status==='In Progress'?'#1a2f45;color:#4aa8ff':o.status==='Completed'?'#0f2f24;color:var(--green)':o.status==='Awaiting Verification'?'#3a2f10;color:#f5c518':'#3a1515;color:var(--red)'};display:inline-block">${o.status}</span></td>
-        <td style="padding:10px 8px">${o.status==='Awaiting Verification'?`<a href="/api/admin/confirm/${o.id}?key=${encodeURIComponent(PAY.ADMIN_KEY)}" target="_blank" style="color:var(--green);font-weight:700;font-size:.75rem">✅ Confirm</a>`:(o.status==='In Progress'?'⏳ Delivering':o.status==='Completed'?'✅ Done':'—')}</td>
-      </tr>`).join('')}</table>`;
-  } catch(e){ $('admin-orders').innerHTML='<p style="color:var(--red)">Error loading orders</p>'; }
-}
-
 /* ================= 💳 FILL PAYMENT ADDRESSES ================= */
 (function(){
   const w=document.getElementById('usdt-wallet'); if(w) w.value=PAY.USDT_WALLET;
@@ -675,8 +683,8 @@ async function loadAdminOrders(){
 })();
 
 loadServices();
-fetch('/api/health').then(r=>r.json()).then(()=>{ $('backend-status').textContent='● Online'; $('backend-status').style.color='var(--green)'; })
-  .catch(()=>{ $('backend-status').textContent='● Offline'; $('backend-status').style.color='var(--red)'; });
+fetch('/api/health').then(function(r){ return r.json(); }).then(function(){ $('backend-status').textContent='● Online'; $('backend-status').style.color='var(--green)'; })
+  .catch(function(){ $('backend-status').textContent='● Offline'; $('backend-status').style.color='var(--red)'; });
 </script>
 </body>
 </html>
