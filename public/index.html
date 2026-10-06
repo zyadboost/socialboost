@@ -630,13 +630,6 @@ async function checkStatus(){
 }
 
 /* ================= 👑 ADMIN PANEL ================= */
-let adminClicks = 0, adminTimer;
-function adminClicks(){
-  adminClicks++;
-  clearTimeout(adminTimer);
-  adminTimer = setTimeout(()=>adminClicks=0, 1000);
-  if(adminClicks >= 3){ adminClicks = 0; openAdminPanel(); }
-}
 function openAdminPanel(){ $('admin-screen').style.display='block'; }
 function adminLogin(){
   if($('admin-pass').value === PAY.ADMIN_KEY){
