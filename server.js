@@ -297,6 +297,19 @@ app.get('/api/admin/stats', async (req, res) => {
   const r = await pool.query("SELECT COUNT(*) as total, COALESCE(SUM(CASE WHEN status IN ('In Progress','Completed') THEN amount ELSE 0 END),0) as revenue FROM orders");
   res.json({ totalOrders: parseInt(r.rows[0].total), revenue: parseFloat(r.rows[0].revenue) });
 });
+/* 🔧 Database migration — add missing columns */
+app.get('/api/admin/migrate', async (req, res) => {
+  try {
+    if (req.query.key !== process.env.ADMIN_PASSWORD) {
+      return res.status(403).json({ success: false, error: 'Wrong admin key' });
+    }
+    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS jap_cost NUMERIC');
+    res.json({ success: true, message: 'Migration done!' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
