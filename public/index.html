@@ -164,7 +164,7 @@ footer { text-align:center; padding:28px 5%; color:var(--muted); border-top:1px 
 <div class="bg-grid"></div>
 
 <nav>
-  <div class="logo">Social<span>Boost</span></div>
+  <div class="logo" onclick="adminClicks()" style="user-select:none">Social<span>Boost</span></div>
   <div class="nav-right">
     <span class="hint" id="backend-status">●</span>
     <a href="#services" class="btn btn-sm">🚀 Order Now</a>
@@ -373,7 +373,13 @@ function esc(t){ return String(t||'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&g
 function closeModal(id){ $(id).style.display='none'; }
 function openTerms(){ $('terms-modal').style.display='flex'; }
 function termsAccepted(){ return $('terms-check') && $('terms-check').checked; }
-
+let adminClicks = 0, adminTimer;
+function adminClicks(){
+  adminClicks++;
+  clearTimeout(adminTimer);
+  adminTimer = setTimeout(()=>adminClicks=0, 1000);
+  if(adminClicks >= 3){ adminClicks = 0; openAdminPanel(); }
+}
 (function(){
   for(let i=0;i<40;i++){
     const s=document.createElement('div'); s.className='star';
