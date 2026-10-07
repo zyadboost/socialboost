@@ -120,7 +120,7 @@ footer{text-align:center;padding:28px 5%;color:var(--muted);border-top:1px solid
 <div class="bg-grid"></div>
 
 <nav>
-  <div class="logo" onclick="adminClicks()" style="user-select:none">Social<span>Boost</span></div>
+  <div class="logo" onclick="adminSecretClicks()" style="user-select:none">Social<span>Boost</span></div>
   <div class="nav-right">
     <span class="hint" id="backend-status">●</span>
     <a href="#services" class="btn btn-sm">🚀 Order Now</a>
@@ -340,12 +340,12 @@ var $ = function(id){ return document.getElementById(id); };
 var SERVICES = [], selectedService = null, payMethod = 'paypal', ppTries = 0, ppRenderTO = null, activeCat = null;
 
 /* ⭐ VAR (mashi let) — var kayqbel re-declaration, BLA SyntaxError! ⭐ */
-var adminClicks = 0, adminTimer = null;
-function adminClicks(){
-  adminClicks++;
+var adminSecretClicks = 0, adminTimer = null;
+function adminSecretClicks(){
+  adminSecretClicks++;
   clearTimeout(adminTimer);
-  adminTimer = setTimeout(function(){ adminClicks = 0; }, 1000);
-  if(adminClicks >= 3){ adminClicks = 0; openAdminPanel(); }
+  adminTimer = setTimeout(function(){ adminSecretClicks = 0; }, 1000);
+  if(adminSecretClicks >= 3){ adminSecretClicks= 0; openAdminPanel(); }
 }
 function openAdminPanel(){ $('admin-screen').style.display='block'; }
 function adminLogin(){
