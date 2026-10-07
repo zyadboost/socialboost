@@ -33,6 +33,8 @@ async function initDB(retries) {
     try {
       await pool.query('CREATE TABLE IF NOT EXISTS services (jap_id INTEGER PRIMARY KEY, category TEXT, name TEXT, type TEXT, rate NUMERIC, min INTEGER, max INTEGER, my_price NUMERIC)');
       await pool.query('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, service_jap_id INTEGER, service_name TEXT, link TEXT, quantity INTEGER, amount NUMERIC, jap_rate NUMERIC, method TEXT, status TEXT, pay_ref TEXT, jap_order_id TEXT, jap_cost NUMERIC, date TEXT, created_at TIMESTAMPTZ DEFAULT NOW())');
+      await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ');
+      await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS jap_cost NUMERIC');
       console.log('✅ Database tables ready');
       return;
     } catch (err) {
@@ -62,6 +64,39 @@ async function checkJAPStatus(japOrderId) {
   } catch (err) { return { error: err.message }; }
 }
 
+/* ================= 📱 TELEGRAM NOTIFICATIONS ================= */
+async function sendTelegram(order) {
+  try {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (!token || !chatId) { console.log('Telegram: no token/chatId'); return; }
+
+    const confirmUrl = 'https://socialboost-store.com/api/admin/confirm/' + order.id + '?key=' + encodeURIComponent(process.env.ADMIN_PASSWORD || '');
+    const methodEmoji = order.method === 'usdt' ? '₿ USDT' : order.method === 'paypal' ? '🅿️ PayPal' : order.method === 'binance' ? '🅿️ Binance Pay' : order.method === 'skrill' ? '💳 Skrill' : '📧 PayPal Transfer';
+
+    const msg = `🛒 *ORDER JDID!*\n` +
+      `━━━━━━━━━━━━━━━━\n` +
+      `📦 ${order.service_name}\n` +
+      `🔗 ${order.link}\n` +
+      `🔢 Qty: ${order.quantity}\n` +
+      `💰 Total: *$${order.amount}*\n` +
+      `💳 Paid: ${methodEmoji}\n` +
+      `🧾 Ref: \`${order.pay_ref || '—'}\`\n` +
+      `🆔 \`${order.id}\`\n` +
+      `━━━━━━━━━━━━━━━━\n` +
+      `👉 [✅ CONFIRM DELIVERY](${confirmUrl})`;
+
+    await axios.post('https://api.telegram.org/bot' + token + '/sendMessage', {
+      chat_id: chatId,
+      text: msg,
+      parse_mode: 'Markdown'
+    });
+    console.log('📱 Telegram notification sent for', order.id);
+  } catch (e) {
+    console.error('Telegram error:', e.message);
+  }
+}
+
 let ppToken = null, ppTokenExpiry = 0;
 
 async function getPayPalAccessToken() {
@@ -77,18 +112,6 @@ async function getPayPalAccessToken() {
 
 let importRunning = false;
 let importCount = 0;
-/* 💰 Smart pricing: higher margin on cheap services + minimum floor */
-function calcMyPrice(rate) {
-  const r = parseFloat(rate);
-  let margin;
-  if (r < 0.05) margin = 8;        // views (cheap) → 8x
-  else if (r < 0.30) margin = 4;   // likes → 4x
-  else if (r < 1.00) margin = 3;   // followers → 3x
-  else margin = 2.5;               // expensive → 2.5x
-  let p = r * margin;
-  if (p < 0.15) p = 0.15;          // minimum $0.15 / 1000
-  return p.toFixed(2);
-}
 
 app.get('/api/import-services', async (req, res) => {
   if (importRunning) {
@@ -109,35 +132,8 @@ app.get('/api/import-services', async (req, res) => {
       batch.forEach((s, j) => {
         const base = j * 8;
         values.push('($' + (base+1) + ',$' + (base+2) + ',$' + (base+3) + ',$' + (base+4) + ',$' + (base+5) + ',$' + (base+6) + ',$' + (base+7) + ',$' + (base+8) + ')');
-               /* 🧹 Clean name: hayyad les tags technique */
-        let cleanName = (s.name || '')
-          .replace(/&amp;/g, '&')
-          .replace(/\s*\[(?:Read Description|READ DESCRIPTION|READ DESCRIPTION)\]/gi, '')
-          .replace(/(?:\s*\[(?:Max:?\s*[0-9.]+\s*[KM]?)\])+/gi, '')
-          .replace(/(?:\s*\[(?:Start Time:?\s*[^\]]*)\])+/gi, '')
-          .replace(/(?:\s*\[(?:Speed:?\s*[^\]]*)\])+/gi, '')
-          .replace(/(?:\s*\[(?:Refill:?\s*[^\]]*)\])+/gi, '')
-          .replace(/\s*\[(?:SPAM\s*(?:ON|OFF)|FLAG\s*OFF|WORKING(?:\s*AFTER\s*UPDATE)?)\]/gi, '')
-          .replace(/\s*(?:💧⛔️?|⛔💧|💧⛔|♻️💧⛔|♻️💧|💧|⛔️?|🔥)\s*/g, ' ')
-          .replace(/\s{2,}/g, ' ')
-          .trim();
-
-        /* 🚫 Skip services khaybin (BOTS, PRANK, Not Guaranteed, etc) */
-        const bad = /bots?\b|prank|not guaranteed|can fully drop|high drop|[\d]+\s*%\s*drop|drop\]|no refill.*no refund/i.test(s.name + ' ' + (s.category || ''));
-        if (bad) return; /* skip — ma tzadch f site */
-
-        /* 📦 Category m3a9la: Followers / Likes / Views / baqi */
-        let cat = s.category || 'Instagram';
-        if (/followers/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Followers';
-        else if (/likes/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Likes';
-        else if (/views/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Views';
-        else if (/comments/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Comments';
-        else if (/story/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Story';
-        else if (/reels/i.test(cleanName)) cat = cat.replace(/[\w\s&+-]*$/,'').trim() + ' Reels';
-        const cleanCat = cat.replace(/\s{2,}/g,' ').trim();
-  
-        const myPrice = calcMyPrice(s.rate);
-        params.push(s.service, cleanCat, cleanName, s.type, parseFloat(s.rate), parseInt(s.min), parseInt(s.max), myPrice);      });
+        params.push(s.service, s.category, s.name, s.type, parseFloat(s.rate), parseInt(s.min), parseInt(s.max), (parseFloat(s.rate) * 3).toFixed(2));
+      });
       await pool.query('INSERT INTO services (jap_id, category, name, type, rate, min, max, my_price) VALUES ' + values.join(',') + ' ON CONFLICT (jap_id) DO NOTHING', params);
       importCount = Math.min(i + 100, services.length);
       console.log('Import progress: ' + importCount + '/' + services.length);
@@ -224,12 +220,30 @@ app.post('/api/pay-order', async (req, res) => {
       'UPDATE orders SET method=$1, status=$2, pay_ref=$3, jap_order_id=$4, jap_cost=$5, paid_at=NOW() WHERE id=$6',
       [method, status, paymentRef, japOrderId, japCost, orderId]
     );
+    const updated = or.rows[0];
+    updated.method = method; updated.status = status; updated.pay_ref = paymentRef;
+    sendTelegram(updated);
     res.json({ success: true, order: { id: orderId, status: status, amount: order.amount } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-/* 👑 ADMIN: Confirm manual payment → launch JAP order */
+
+app.post('/api/claim-payment', async (req, res) => {
+  try {
+    const orderId = req.body.orderId;
+    const method = req.body.method;
+    const paymentRef = req.body.paymentRef;
+    await pool.query('UPDATE orders SET method=$1, status=$2, pay_ref=$3 WHERE id=$4',
+      [method, 'Awaiting Verification', paymentRef || '', orderId]);
+    const or = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+    if (or.rows[0]) sendTelegram(or.rows[0]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/admin/confirm/:orderId', async (req, res) => {
   try {
     if (req.query.key !== process.env.ADMIN_PASSWORD) {
@@ -256,14 +270,15 @@ app.get('/api/admin/confirm/:orderId', async (req, res) => {
   }
 });
 
-app.post('/api/claim-payment', async (req, res) => {
+/* 🔧 Database migration */
+app.get('/api/admin/migrate', async (req, res) => {
   try {
-    const orderId = req.body.orderId;
-    const method = req.body.method;
-    const paymentRef = req.body.paymentRef;
-    await pool.query('UPDATE orders SET method=$1, status=$2, pay_ref=$3 WHERE id=$4',
-      [method, 'Awaiting Verification', paymentRef || '', orderId]);
-    res.json({ success: true });
+    if (req.query.key !== process.env.ADMIN_PASSWORD) {
+      return res.status(403).json({ success: false, error: 'Wrong admin key' });
+    }
+    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS jap_cost NUMERIC');
+    res.json({ success: true, message: 'Migration done!' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -297,19 +312,6 @@ app.get('/api/admin/stats', async (req, res) => {
   const r = await pool.query("SELECT COUNT(*) as total, COALESCE(SUM(CASE WHEN status IN ('In Progress','Completed') THEN amount ELSE 0 END),0) as revenue FROM orders");
   res.json({ totalOrders: parseInt(r.rows[0].total), revenue: parseFloat(r.rows[0].revenue) });
 });
-/* 🔧 Database migration — add missing columns */
-app.get('/api/admin/migrate', async (req, res) => {
-  try {
-    if (req.query.key !== process.env.ADMIN_PASSWORD) {
-      return res.status(403).json({ success: false, error: 'Wrong admin key' });
-    }
-    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ');
-    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS jap_cost NUMERIC');
-    res.json({ success: true, message: 'Migration done!' });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
@@ -334,7 +336,7 @@ async function start() {
   await initDB(10);
   app.listen(PORT, () => {
     console.log('═══════════════════════════════════════════');
-    console.log('  🔥 SocialBoost + PostgreSQL — RUNNING');
+    console.log('  🔥 SocialBoost + PostgreSQL + Telegram — RUNNING');
     console.log('  → Port ' + PORT);
     console.log('═══════════════════════════════════════════');
   });
