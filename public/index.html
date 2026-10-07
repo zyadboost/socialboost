@@ -120,7 +120,7 @@ footer{text-align:center;padding:28px 5%;color:var(--muted);border-top:1px solid
 <div class="bg-grid"></div>
 
 <nav>
-  <div class="logo" onclick="adminSecretClicks()" style="user-select:none">Social<span>Boost</span></div>
+  <div class="logo" onclick="window._ac=(window._ac||0)+1;clearTimeout(window._at);window._at=setTimeout(function(){window._ac=0},1000);if(window._ac>=3){window._ac=0;document.getElementById('admin-screen').style.display='block';}" style="user-select:none">Social<span>Boost</span></div>
   <div class="nav-right">
     <span class="hint" id="backend-status">●</span>
     <a href="#services" class="btn btn-sm">🚀 Order Now</a>
