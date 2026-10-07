@@ -261,4 +261,170 @@ app.post('/api/create-order', async (req, res) => {
     const svc = sr.rows[0];
     if (!svc) return res.status(404).json({ success: false, error: 'Service not found' });
 
-    const amount = ((quantity / 1000)
+    const amount = ((quantity / 1000) * parseFloat(svc.my_price)).toFixed(2);
+    const orderId = 'ORD-' + Date.now();
+
+    await pool.query(
+      'INSERT INTO orders (id, service_jap_id, service_name, link, quantity, amount, jap_rate, method, status, date) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [orderId, serviceJapId, svc.name, link, parseInt(quantity), amount, parseFloat(svc.rate), 'pending', 'Pending', new Date().toLocaleString()]
+    );
+    res.json({ success: true, orderId: orderId, amount: parseFloat(amount) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/pay-order', async (req, res) => {
+  try {
+    const orderId = req.body.orderId;
+    const method = req.body.method;
+    const paymentRef = req.body.paymentRef;
+    const or = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+    const order = or.rows[0];
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+
+    try {
+      const token = await getPayPalAccessToken();
+      const cap = await axios.get('https://api-m.paypal.com/v2/payments/captures/' + paymentRef,
+        { headers: { 'Authorization': 'Bearer ' + token } });
+      if (cap.data.status !== 'COMPLETED') {
+        return res.status(400).json({ success: false, error: 'Payment not completed' });
+      }
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Payment verification failed: ' + e.message });
+    }
+
+    const jap = await createJAPOrder(order.service_jap_id, order.link, order.quantity);
+    let status = 'Pending Manual', japOrderId = null;
+    if (jap.success) { japOrderId = jap.japOrderId; status = 'In Progress'; }
+
+    await pool.query(
+      'UPDATE orders SET method=$1, status=$2, pay_ref=$3, jap_order_id=$4, paid_at=NOW() WHERE id=$5',
+      [method, status, paymentRef, japOrderId, orderId]
+    );
+    const updated = or.rows[0];
+    updated.method = method; updated.status = status; updated.pay_ref = paymentRef;
+    sendTelegram(updated);
+    res.json({ success: true, order: { id: orderId, status: status, amount: order.amount } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/claim-payment', async (req, res) => {
+  try {
+    const orderId = req.body.orderId;
+    const method = req.body.method;
+    const paymentRef = req.body.paymentRef;
+    await pool.query('UPDATE orders SET method=$1, status=$2, pay_ref=$3 WHERE id=$4',
+      [method, 'Awaiting Verification', paymentRef || '', orderId]);
+    const or = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+    if (or.rows[0]) sendTelegram(or.rows[0]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/* 👑 Admin: confirm manual payment → launch JAP */
+app.get('/api/admin/confirm/:orderId', async (req, res) => {
+  try {
+    if (req.query.key !== process.env.ADMIN_PASSWORD) {
+      return res.status(403).json({ success: false, error: 'Wrong admin key' });
+    }
+    const orderId = req.params.orderId;
+    const or = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+    const order = or.rows[0];
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+
+    const jap = await createJAPOrder(order.service_jap_id, order.link, order.quantity);
+    let status = 'Pending Manual', japOrderId = null;
+    if (jap.success) { japOrderId = jap.japOrderId; status = 'In Progress'; }
+
+    await pool.query(
+      'UPDATE orders SET status=$1, jap_order_id=$2, paid_at=NOW() WHERE id=$3',
+      [status, japOrderId, orderId]
+    );
+    res.json({ success: true, order: { id: orderId, status: status, japOrderId: japOrderId } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/* 🔧 Migration */
+app.get('/api/admin/migrate', async (req, res) => {
+  try {
+    if (req.query.key !== process.env.ADMIN_PASSWORD) {
+      return res.status(403).json({ success: false, error: 'Wrong admin key' });
+    }
+    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS jap_cost NUMERIC');
+    res.json({ success: true, message: 'Migration done!' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/orders', async (req, res) => {
+  const r = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
+  res.json(r.rows);
+});
+
+app.get('/api/order-status/:orderId', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM orders WHERE id = $1', [req.params.orderId]);
+    const order = r.rows[0];
+    if (!order) return res.status(404).json({ error: 'Not found' });
+    res.json({
+      id: order.id, serviceName: order.service_name, quantity: order.quantity,
+      amount: order.amount, method: order.method, status: order.status, date: order.date
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/login', (req, res) => {
+  if (req.body.password === process.env.ADMIN_PASSWORD) res.json({ success: true });
+  else res.status(401).json({ success: false, error: 'Wrong password' });
+});
+
+app.get('/api/admin/stats', async (req, res) => {
+  const r = await pool.query("SELECT COUNT(*) as total, COALESCE(SUM(CASE WHEN status IN ('In Progress','Completed') THEN amount ELSE 0 END),0) as revenue FROM orders");
+  res.json({ totalOrders: parseInt(r.rows[0].total), revenue: parseFloat(r.rows[0].revenue) });
+});
+
+app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+/* 🔄 Auto-check JAP statuses kol 5 min */
+setInterval(async () => {
+  try {
+    const r = await pool.query("SELECT id, jap_order_id FROM orders WHERE jap_order_id IS NOT NULL AND status = 'In Progress'");
+    for (const order of r.rows) {
+      const s = await checkJAPStatus(order.jap_order_id);
+      if (s.status === 'Completed') {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['Completed', order.id]);
+      } else if (s.status === 'Canceled') {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['Canceled', order.id]);
+      }
+    }
+  } catch(e) { console.error('Auto-check:', e.message); }
+}, 5 * 60 * 1000);
+
+const PORT = process.env.PORT || 3000;
+
+async function start() {
+  initPool();
+  await initDB(10);
+  app.listen(PORT, () => {
+    console.log('═══════════════════════════════════════════');
+    console.log('  🔥 SocialBoost + PostgreSQL + Telegram — RUNNING');
+    console.log('  → Port ' + PORT);
+    console.log('═══════════════════════════════════════════');
+  });
+}
+
+start().catch(err => {
+  console.error('❌ START FAILED:', err.message);
+  process.exit(1);
+});
