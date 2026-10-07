@@ -262,11 +262,6 @@ footer{border-top:1px solid var(--border);padding:32px 0;margin-top:36px}
   </div>
 </div>
 
-<section class="sec container" id="platforms">
-  <div class="sec-h"><h2>Choose Your Platform</h2><p>All services organized by platform</p></div>
-  <div class="pgrid" id="pgrid"></div>
-</section>
-
 <section class="sec container" id="catview" style="display:none">
   <div class="catview">
     <div class="catview-h">
@@ -276,12 +271,6 @@ footer{border-top:1px solid var(--border);padding:32px 0;margin-top:36px}
     <div class="cv-grid" id="cv-grid"></div>
     <button class="btn btn-outline morebtn" id="moreBtn" onclick="loadMore()" style="display:none">Load More</button>
   </div>
-</section>
-
-<section class="sec container" id="best">
-  <div class="sec-h"><h2>🔥 Best-Selling Services</h2><p>Our most popular services at competitive prices.</p></div>
-  <div class="bs-grid" id="bsGrid"></div>
-  <div style="text-align:center"><a href="#platforms" class="btn btn-outline">VIEW ALL SERVICES</a></div>
 </section>
 
 <section class="sec container" id="how">
@@ -484,7 +473,7 @@ async function loadServices(){
   try{
     var r=await fetch('/api/services');
     SERVICES=await r.json();
-    renderPlatforms();renderBest();renderHeroPlats();renderFinderPlats();
+    renderHeroPlats();renderFinderPlats();
   }catch(e){$('pgrid').innerHTML='<p style="color:var(--muted);grid-column:1/-1;text-align:center">⚠️ Backend offline — refresh in a moment</p>'}
 }
 
