@@ -9,12 +9,7 @@
 <meta property="og:title" content="SocialBoost — Cheapest SMM Panel">
 <meta property="og:description" content="5700+ services, fast delivery, no password. PayPal, Skrill & Crypto.">
 <meta property="og:type" content="website">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%236C5CE7'/><text x='50' y='68' font-size='55' text-anchor='middle' fill='white' font-weight='bold' font-family='Arial'>S</text></svg>">
- <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<link rel="shortcut icon" href="/favicon.ico">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Inter',sans-serif}
 :root{--bg:#080B12;--bg2:#0D121B;--card:#111722;--primary:#6C5CE7;--accent:#00D4FF;--cta:#22C55E;--text:#fff;--muted:#94A3B8;--border:#202938;--r:14px}
@@ -102,6 +97,7 @@ nav{background:rgba(8,11,18,.9);backdrop-filter:blur(14px);position:sticky;top:0
 .badge{display:inline-flex;align-items:center;gap:4px;font-size:.64rem;font-weight:700;padding:3px 9px;border-radius:20px;margin-bottom:7px}
 .b-g{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);color:var(--cta)}
 .b-n{background:rgba(245,197,24,.08);border:1px solid rgba(245,197,24,.3);color:#f5c518}
+.b-s{background:rgba(108,92,231,.12);border:1px solid rgba(108,92,231,.4);color:var(--primary)}
 .svc-f{display:flex;justify-content:space-between;align-items:center;margin-top:9px}
 .svc-f .p{color:var(--cta);font-weight:800;font-size:.92rem}
 .svc-f .r{color:var(--muted);font-size:.68rem}
@@ -277,6 +273,12 @@ footer{border-top:1px solid var(--border);padding:32px 0;margin-top:36px}
   </div>
 </section>
 
+<section class="sec container" id="best">
+  <div class="sec-h"><h2>🔥 Best-Selling Services</h2><p>Our most popular services at competitive prices.</p></div>
+  <div class="bs-grid" id="bsGrid"></div>
+  <div style="text-align:center"><a href="#platforms" class="btn btn-outline">VIEW ALL SERVICES</a></div>
+</section>
+
 <section class="sec container" id="how">
   <div class="sec-h"><h2>Order in 3 Simple Steps</h2></div>
   <div class="hiw">
@@ -435,7 +437,7 @@ function trackModal(){$('status-modal').style.display='flex'}
 function mmenu(open){$('mmenu').classList.toggle('open',open)}
 function tog(el){el.classList.toggle('open')}
 
-/* 👑 ADMIN — inline (3 clicks logo) */
+/* 👑 ADMIN — inline */
 var _ac=0,_at=null;
 function adminSecret(){
   _ac++;
@@ -473,11 +475,20 @@ function tOf(s){var n=((s.name||'')+' '+(s.category||'')).toLowerCase();for(var 
 function tLabel(s){var n=((s.name||'')+' '+(s.category||'')).toLowerCase();for(var i=0;i<TORD.length;i++){if(n.indexOf(TORD[i].toLowerCase())!==-1)return TLABEL[TORD[i]]||TORD[i]}return 'Other'}
 function shortN(n){var x=String(n||'').replace(/\s*\[(?:Max:?[^\]]*|Start Time:?[^\]]*|Speed:?[^\]]*|Refill:?[^\]]*)\]/gi,'').replace(/&amp;/g,'&').replace(/\s{2,}/g,' ').trim();return x.length>48?x.slice(0,48)+'…':x}
 
+/* 💰 Helper — detect subscription/package services */
+function isSubscription(s){
+  return /subscription|monthly|pack|engagement/i.test((s.name||'')+' '+(s.category||''));
+}
+/* 💰 Price display — subscription shows per mo, others per 1K */
+function priceHtml(s){
+  return '<span class="p">'+ (isSubscription(s) ? money(s.myPrice)+' / mo' : money(s.myPrice)+' / 1K') +'</span>';
+}
+
 async function loadServices(){
   try{
     var r=await fetch('/api/services');
     SERVICES=await r.json();
-    renderHeroPlats();renderFinderPlats();
+    renderHeroPlats();renderFinderPlats();renderBest();
   }catch(e){$('pgrid').innerHTML='<p style="color:var(--muted);grid-column:1/-1;text-align:center">⚠️ Backend offline — refresh in a moment</p>'}
 }
 
@@ -538,14 +549,6 @@ function goToResults(){
   openCat(plat,type);
 }
 
-/* PLATFORMS GRID */
-function renderPlatforms(){
-  var c={};SERVICES.forEach(function(s){var p=platformOf(s.category);c[p]=(c[p]||0)+1});
-  var show=MAINPLATS.filter(function(p){return c[p]});
-  Object.keys(c).sort(function(a,b){return c[b]-c[a]}).forEach(function(p){if(show.indexOf(p)===-1&&show.length<9)show.push(p)});
-  $('pgrid').innerHTML=show.map(function(p){return '<div class="pcard" onclick="openCat(\''+esc(p).replace(/'/g,"\\'")+'\')">'+logoHtml(p,52)+'<b>'+esc(p)+'</b><small>'+c[p]+' services</small></div>'}).join('');
-}
-
 /* CATEGORY VIEW */
 function openCat(cat,typeFilter){
   activeCat=cat;
@@ -566,7 +569,7 @@ function openCat(cat,typeFilter){
   $('catview').style.display='block';
   $('finder').scrollIntoView({behavior:'smooth'});
 }
-function closeCat(){$('catview').style.display='none';$('platforms').scrollIntoView({behavior:'smooth'})}
+function closeCat(){$('catview').style.display='none';$('finder').scrollIntoView({behavior:'smooth'})}
 function loadMore(){
   var b=$('moreBtn');b.style.display='none';
   var next=_all.slice(_shown,_shown+48);
@@ -578,10 +581,13 @@ function loadMore(){
 function svcCard(s){
   var p=platformOf(s.category);
   var g=/guaranteed|refill:\s*\d+/i.test(s.name||'')&&!/not guaranteed/i.test(s.name||'');
+  var badge = isSubscription(s)
+    ? '<span class="badge b-s">📦 Monthly Package</span>'
+    : (g?'<span class="badge b-g">🛡️ GUARANTEED · Refill</span>':'<span class="badge b-n">⚠️ No refill — cheaper</span>');
   return '<div class="svc" onclick="openOrder('+s.japId+')">'
     + '<div class="svc-h">'+logoHtml(p,38)+'<div style="min-width:0"><b>'+esc(shortN(s.name))+'</b><small>'+esc(s.category)+'</small></div></div>'
-    + (g?'<span class="badge b-g">🛡️ GUARANTEED · Refill</span>':'<span class="badge b-n">⚠️ No refill — cheaper</span>')
-    + '<div class="svc-f"><span class="p">'+money(s.myPrice)+' / 1K</span><span class="r">'+(+s.min).toLocaleString()+'–'+(+s.max).toLocaleString()+'</span></div>'
+    + badge
+    + '<div class="svc-f">'+priceHtml(s)+'<span class="r">'+(+s.min).toLocaleString()+'–'+(+s.max).toLocaleString()+'</span></div>'
     + '</div>';
 }
 
@@ -612,9 +618,12 @@ async function renderBest(){
   $('bsGrid').innerHTML=picks.map(function(s){
     var p=platformOf(s.category);
     var g=/guaranteed|refill:\s*\d+/i.test(s.name||'')&&!/not guaranteed/i.test(s.name||'');
+    var badge = isSubscription(s)
+      ? '<span class="badge b-s">📦 Monthly Package</span>'
+      : (g?'<span class="badge b-g">🛡️ GUARANTEED · Refill</span>':'<span class="badge b-n">⚠️ No refill — cheaper</span>');
     return '<div class="bsc">'
       + '<div class="bsc-h">'+logoHtml(p,42)+'<div style="min-width:0"><b>'+esc(shortN(s.name))+'</b><small>'+esc(p)+'</small></div></div>'
-      + '<div class="bsc-p"><span class="p">'+money(s.myPrice)+'</span> <span class="k">/ 1K</span></div>'
+      + '<div class="bsc-p">'+priceHtml(s)+'</div>'
       + '<div class="bsc-f"><span>⚡ Fast Delivery</span>'+(g?'<span style="color:var(--cta);border-color:rgba(34,197,94,.4)">🛡️ Refill Available</span>':'')+'</div>'
       + '<div class="bsc-d">'+esc(s.category)+'</div>'
       + '<button class="btn btn-cta" style="width:100%" onclick="openOrder('+s.japId+')">ORDER NOW</button>'
@@ -716,25 +725,6 @@ async function checkStatus(){
     var o=await r.json();
     $('status-result').innerHTML='<div class="tline"><span>'+esc(o.serviceName)+'</span><b>'+o.status+'</b></div><div class="hint">Qty: '+(+o.quantity).toLocaleString()+' • '+money(o.amount)+'</div>'
   }catch(e){$('status-result').innerHTML='<div style="color:var(--red)">❌ Error</div>'}
-}
-
-/* 👑 ADMIN PANEL */
-function adminLogin(){
-  if($('admin-pass').value===PAY.ADMIN_KEY){
-    sessionStorage.setItem('sb_admin','yes');
-    $('alogin').style.display='none';$('apanel').style.display='block';loadAdminOrders()
-  }else alert('❌ Wrong password')
-}
-async function loadAdminOrders(){
-  try{
-    var r=await fetch('/api/orders');var orders=await r.json();
-    var rev=orders.filter(function(o){return['In Progress','Completed'].includes(o.status)}).reduce(function(a,o){return a+(+o.amount||0)},0);
-    $('astats').innerHTML='<div class="ast"><b>'+money(rev)+'</b><small>💰 Revenue</small></div><div class="ast"><b style="color:var(--primary)">'+orders.length+'</b><small>📦 Orders</small></div><div class="ast"><b style="color:#f5c518">'+orders.filter(function(o){return o.status==='Awaiting Verification'}).length+'</b><small>⏳ Pending</small></div><div class="ast"><b>'+orders.filter(function(o){return o.status==='Completed'}).length+'</b><small>✅ Done</small></div>';
-    if(!orders.length){$('aorders').innerHTML='<p style="color:var(--muted);text-align:center;padding:30px">No orders 📭</p>';return}
-    $('aorders').innerHTML='<table><tr><th>DATE</th><th>ID</th><th>SERVICE</th><th>LINK</th><th>QTY</th><th>TOTAL</th><th>PAID</th><th>STATUS</th><th>ACTION</th></tr>'
-    +orders.map(function(o){return '<tr><td style="white-space:nowrap;font-size:.72rem">'+(o.date||'')+'</td><td><b>'+(o.id||'').slice(-8)+'</b></td><td>'+esc((o.service_name||'').slice(0,28))+'…</td><td><a href="'+o.link+'" target="_blank">'+(o.link||'').replace('https://www.instagram.com/','@').slice(0,16)+'</a></td><td>'+(+o.quantity).toLocaleString()+'</td><td style="color:var(--cta);font-weight:700">'+money(o.amount)+'</td><td>'+(o.method==='usdt'?'₿':o.method==='paypal'?'🅿️':o.method==='binance'?'🅿️B':o.method==='skrill'?'💳':'📧')+'</td><td><span style="padding:3px 9px;border-radius:20px;font-size:.64rem;font-weight:700;background:'+(o.status==='In Progress'?'#1a2f45;color:#4aa8ff':o.status==='Completed'?'#0f2f24;color:var(--cta)':o.status==='Awaiting Verification'?'#3a2f10;color:#f5c518':'#3a1515;color:var(--red)')+';display:inline-block">'+o.status+'</span></td><td>'+(o.status==='Awaiting Verification'?'<a href="/api/admin/confirm/'+o.id+'?key='+encodeURIComponent(PAY.ADMIN_KEY)+'" target="_blank" style="color:var(--cta);font-weight:700">✅</a>':(o.status==='Completed'?'✅':'—'))+'</td></tr>'}).join('')
-    +'</table>'
-  }catch(e){$('aorders').innerHTML='<p style="color:var(--red)">Error</p>'}
 }
 
 /* 💳 FILL ADDRESSES */
