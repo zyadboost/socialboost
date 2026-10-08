@@ -473,7 +473,10 @@ function platformOf(cat){
 function logoHtml(p,s){var L=LOGOS[p]||LOGOS['Website'];return '<div style="width:'+s+'px;height:'+s+'px;border-radius:11px;background:'+L.bg+';display:flex;align-items:center;justify-content:center;flex-shrink:0">'+L.svg+'</div>'}
 function tOf(s){var n=((s.name||'')+' '+(s.category||'')).toLowerCase();for(var i=0;i<TORD.length;i++){if(n.indexOf(TORD[i].toLowerCase())!==-1)return i}return TORD.length}
 function tLabel(s){var n=((s.name||'')+' '+(s.category||'')).toLowerCase();for(var i=0;i<TORD.length;i++){if(n.indexOf(TORD[i].toLowerCase())!==-1)return TLABEL[TORD[i]]||TORD[i]}return 'Other'}
-function shortN(n){var x=String(n||'').replace(/\s*\[(?:Max:?[^\]]*|Start Time:?[^\]]*|Speed:?[^\]]*|Refill:?[^\]]*)\]/gi,'').replace(/&amp;/g,'&').replace(/\s{2,}/g,' ').trim();return x.length>48?x.slice(0,48)+'…':x}
+function isSub(s){
+  return /subscription|promo pack|starter pack|engagement.*pack|monthly/i.test((s.name||'')+' '+(s.category||''));
+}
+  function shortN(n){var x=String(n||'').replace(/\s*\[(?:Max:?[^\]]*|Start Time:?[^\]]*|Speed:?[^\]]*|Refill:?[^\]]*)\]/gi,'').replace(/&amp;/g,'&').replace(/\s{2,}/g,' ').trim();return x.length>48?x.slice(0,48)+'…':x}
 
 /* 💰 Helper — detect subscription/package services */
 function isSubscription(s){
@@ -553,7 +556,7 @@ function goToResults(){
 function openCat(cat,typeFilter){
   activeCat=cat;
   _filterType=typeFilter||'';
-  var list=SERVICES.filter(function(s){return platformOf(s.category)===cat});
+   var list=SERVICES.filter(function(s){return platformOf(s.category)===cat&&!isSub(s)});
   if(_filterType){
     list=list.filter(function(s){return ((s.name||'')+' '+(s.category||'')).toLowerCase().indexOf(_filterType.toLowerCase())!==-1});
   }
@@ -605,9 +608,9 @@ async function renderBest(){
   }catch(e){}
   if(!picks.length){
     ['Followers','Likes','Views','Members','Comments','Story'].forEach(function(t){
-      var c=SERVICES.filter(function(s){
+           var c=SERVICES.filter(function(s){
         var p=platformOf(s.category);
-        return (p==='Instagram'||p==='TikTok'||p==='YouTube')&&(s.name||'').toLowerCase().indexOf(t.toLowerCase())!==-1&&!/bots?\b|prank|not guaranteed/i.test(s.name||'');
+        return (p==='Instagram'||p==='TikTok'||p==='YouTube')&&(s.name||'').toLowerCase().indexOf(t.toLowerCase())!==-1&&!/bots?\b|prank|not guaranteed|subscription|promo pack|starter pack/i.test((s.name||'')+' '+(s.category||''));
       });
       c.sort(function(a,b){return parseFloat(a.myPrice)-parseFloat(b.myPrice)});
       if(c[0])picks.push(c[0]);
