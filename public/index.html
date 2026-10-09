@@ -490,14 +490,33 @@ async function loadServices(){
 }
 
 /* HERO PLATFORM LOGOS */
+/* HERO PLATFORM LOGOS — gha les platformes li 3ndek f services */
 function renderHeroPlats(){
-  var c={};SERVICES.forEach(function(s){var p=platformOf(s.category);c[p]=(c[p]||0)+1});
-  var show=MAINPLATS.filter(function(p){return c[p]});
-  var el=$('heroPlats');if(!el)return;
-  el.innerHTML=show.map(function(p){
-    return '<div class="hp-item" onclick="openCat(\''+esc(p).replace(/'/g,"\\'")+'\')">'
-      + logoHtml(p,42)
-      + '<b>'+esc(p).replace(' (Twitter)','')+'</b>'
+  var box = document.querySelector('.hero-platforms');
+  var el = $('heroPlats');
+  if(!el) return;
+
+  var counts = {};
+  SERVICES.forEach(function(s){
+    var p = platformOf(s.category);
+    counts[p] = (counts[p]||0) + 1;
+  });
+
+  /* gha les platformes li 3andhom services b7a9 */
+  var show = MAINPLATS.filter(function(p){ return counts[p] > 0; });
+
+  /* ila backend khawi wla ma wselch — khebbi l box kamel */
+  if(!show.length){
+    if(box) box.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  if(box) box.style.display = 'block';
+
+  el.innerHTML = show.map(function(p){
+    return '<div class="hp-item" onclick="openCat(\'' + esc(p).replace(/'/g,"\\'") + '\')">'
+      + logoHtml(p, 42)
+      + '<b>' + esc(p).replace(' (Twitter)','') + '</b>'
       + '</div>';
   }).join('');
 }
