@@ -312,9 +312,6 @@ app.post('/api/pay-order', async (req, res) => {
 });
 
 app.post('/api/claim-payment', async (req, res) => {
-  try {
-        const confirmUrl = `${req.protocol}://${req.get('host')}/api/admin/confirm/${order.id}?key=${encodeURIComponent(adminKey2())}`;
-    function adminKey2(){ return String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim(); }
     notifyTelegram('🔔 <b>ORDER JDID!</b>\n\n' + order.serviceName + '\n🔗 ' + order.link + '\nQty: ' + order.quantity + '\n💰 ' + money(order.amount) + '\nPaid: ' + order.method + '\nRef: ' + (order.payRef||'—') + '\nID: ' + order.id + '\n\n✅ <a href="' + confirmUrl + '">CONFIRM DELIVERY</a>');
     const orderId = req.body.orderId;
     const method = req.body.method;
@@ -418,16 +415,7 @@ setInterval(async () => {
   } catch(e) { console.error('Auto-check:', e.message); }
 }, 5 * 60 * 1000);
 /* 📱 TELEGRAM NOTIFY — kayseft message melli kayji order claim */
-async function notifyTelegram(text) {
-  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return;
-  try {
-    await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      chat_id: process.env.TELEGRAM_CHAT_ID,
-      text: text,
-      parse_mode: 'HTML'
-    });
-  } catch (e) { console.error('TG error:', e.message); }
-}
+
 const PORT = process.env.PORT || 3000;
 
 async function start() {
@@ -445,3 +433,17 @@ start().catch(err => {
   console.error('❌ START FAILED:', err.message);
   process.exit(1);
 });
+    order.method = method;
+    order.payRef = paymentRef;
+    order.status = 'Pending';
+    order.claimedAt = new Date().toISOString();
+    saveDB(db);
+        saveDB(db);
+    const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
+    const confirmUrl = `${req.protocol}://${req.get('host')}/api/admin/confirm/${order.id}?key=${encodeURIComponent(adminKey)}`;
+    notifyTelegram('🔔 <b>ORDER JDID!</b>\n\n' + order.serviceName + '\n🔗 ' + order.link + '\nQty: ' + order.quantity + '\n💰 $' + (order.amount||0).toFixed(2) + '\nPaid: ' + order.method + '\nRef: ' + (order.payRef||'—') + '\nID: ' + order.id + '\n\n✅ <a href="' + confirmUrl + '">CONFIRM DELIVERY</a>');
+        saveDB(db);
+    const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
+    const confirmUrl = `${req.protocol}://${req.get('host')}/api/admin/confirm/${order.id}?key=${encodeURIComponent(adminKey)}`;
+    notifyTelegram('🔔 <b>ORDER JDID!</b>\n\n' + order.serviceName + '\n🔗 ' + order.link + '\nQty: ' + order.quantity + '\n💰 $' + (order.amount||0).toFixed(2) + '\nPaid: ' + order.method + '\nRef: ' + (order.payRef||'—') + '\nID: ' + order.id + '\n\n✅ <a href="' + confirmUrl + '">CONFIRM DELIVERY</a>');
+    res.json({ success: true, orderId: order.id });
