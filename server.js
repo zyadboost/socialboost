@@ -9,34 +9,28 @@ const app = express();
 app.use(express.json());
 app.use(express.static('public'));
 
-/* ================================================================
-   💾 DATABASE
-   ================================================================ */
 const DB_FILE = path.join(__dirname, 'data.json');
+
 function loadDB() {
   try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); }
   catch(e) { return { orders: [], services: [], clients: [], settings: { margin: 3.0 } }; }
 }
 function saveDB(db) { fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
 
-/* ================================================================
-   📱 TELEGRAM NOTIFY
-   ================================================================ */
+function money(n) { return '$' + Number(n).toFixed(2); }
+
+/* TELEGRAM NOTIFY */
 async function notifyTelegram(text) {
   if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return;
   try {
-    await axios.post('https://api.telegram.org/bot' + process.env.TELEGRAM_BOT_TOKEN + '/sendMessage', {
-      chat_id: process.env.TELEGRAM_CHAT_ID,
-      text: text,
-      parse_mode: 'HTML',
-      disable_web_page_preview: true
-    });
-  } catch (e) { console.error('TG error:', e.message); }
+    await axios.post(
+      'https://api.telegram.org/bot' + process.env.TELEGRAM_BOT_TOKEN + '/sendMessage',
+      { chat_id: process.env.TELEGRAM_CHAT_ID, text: text, parse_mode: 'HTML', disable_web_page_preview: true }
+    );
+  } catch (e) { console.error('TG error: ' + e.message); }
 }
 
-/* ================================================================
-   📦 JAP API
-   ================================================================ */
+/* JAP API */
 const JAP_URL = process.env.JAP_API_URL || 'https://justanotherpanel.com/api/v2';
 const JAP_KEY = process.env.JAP_API_KEY;
 
@@ -60,15 +54,16 @@ async function getJAPBalance() {
   return res.data;
 }
 
-/* ================================================================
-   💰 PAYPAL
-   ================================================================ */
-let paypalToken = null, paypalTokenExpiry = 0;
+/* PAYPAL */
+let paypalToken = null;
+let paypalTokenExpiry = 0;
 
 async function getPayPalAccessToken() {
   if (paypalToken && Date.now() < paypalTokenExpiry) return paypalToken;
-  const auth = Buffer.from(process.env.PAYPAL_CLIENT_ID + ':' + process.env.PAYPAL_CLIENT_SECRET).toString('base64');
-  const res = await axios.post('https://api-m.paypal.com/v1/oauth2/token',
+  const pair = process.env.PAYPAL_CLIENT_ID + ':' + process.env.PAYPAL_CLIENT_SECRET;
+  const auth = Buffer.from(pair).toString('base64');
+  const res = await axios.post(
+    'https://api-m.paypal.com/v1/oauth2/token',
     'grant_type=client_credentials',
     { headers: { 'Authorization': 'Basic ' + auth, 'Content-Type': 'application/x-www-form-urlencoded' } }
   );
@@ -80,8 +75,10 @@ async function getPayPalAccessToken() {
 async function verifyPayPalCapture(captureId) {
   try {
     const token = await getPayPalAccessToken();
-    const r = await axios.get('https://api-m.paypal.com/v2/payments/captures/' + captureId,
-      { headers: { 'Authorization': 'Bearer ' + token } });
+    const r = await axios.get(
+      'https://api-m.paypal.com/v2/payments/captures/' + captureId,
+      { headers: { 'Authorization': 'Bearer ' + token } }
+    );
     const cap = r.data;
     if (cap.status === 'COMPLETED') {
       return { success: true, amount: parseFloat(cap.amount.value) };
@@ -92,34 +89,29 @@ async function verifyPayPalCapture(captureId) {
   }
 }
 
-/* ================================================================
-   🪙 CRYPTOMUS (USDT)
-   ================================================================ */
 function cryptomusSign(body) {
   return crypto.createHmac('sha512', process.env.CRYPTOMUS_PAY_KEY || '')
     .update(JSON.stringify(body)).digest('hex');
 }
 
-/* ================================================================
-   🌐 API ROUTES
-   ================================================================ */
-
-/* ---------- SERVICES ---------- */
+/* SERVICES */
 app.get('/api/import-services', async (req, res) => {
   try {
     const japServices = await importJAPServices();
     const db = loadDB();
     const margin = (db.settings && db.settings.margin) || 3.0;
-    db.services = japServices.map(s => ({
-      japId: s.service,
-      category: s.category,
-      name: s.name,
-      type: s.type,
-      rate: parseFloat(s.rate),
-      min: parseInt(s.min),
-      max: parseInt(s.max),
-      myPrice: (parseFloat(s.rate) * margin).toFixed(2)
-    }));
+    db.services = japServices.map(function(s) {
+      return {
+        japId: s.service,
+        category: s.category,
+        name: s.name,
+        type: s.type,
+        rate: parseFloat(s.rate),
+        min: parseInt(s.min),
+        max: parseInt(s.max),
+        myPrice: (parseFloat(s.rate) * margin).toFixed(2)
+      };
+    });
     saveDB(db);
     res.json({ success: true, count: db.services.length });
   } catch (err) {
@@ -136,9 +128,10 @@ app.post('/api/update-margin', (req, res) => {
   const margin = parseFloat(req.body.margin);
   const db = loadDB();
   db.settings.margin = margin;
-  db.services = db.services.map(s => {
-    return { japId: s.japId, category: s.category, name: s.name, type: s.type,
-      rate: s.rate, min: s.min, max: s.max, myPrice: (s.rate * margin).toFixed(2) };
+  db.services = db.services.map(function(s) {
+    const copy = Object.assign({}, s);
+    copy.myPrice = (s.rate * margin).toFixed(2);
+    return copy;
   });
   saveDB(db);
   res.json({ success: true, count: db.services.length });
@@ -148,21 +141,21 @@ app.post('/api/update-price', (req, res) => {
   const japId = req.body.japId;
   const newPrice = parseFloat(req.body.newPrice);
   const db = loadDB();
-  const svc = db.services.find(s => s.japId == japId);
+  const svc = db.services.find(function(s) { return s.japId == japId; });
   if (!svc) return res.status(404).json({ success: false });
   svc.myPrice = newPrice;
   saveDB(db);
   res.json({ success: true });
 });
 
-/* ---------- ORDERS ---------- */
+/* ORDERS */
 app.post('/api/create-order', async (req, res) => {
   try {
     const serviceJapId = req.body.serviceJapId;
     const link = req.body.link;
     const quantity = parseInt(req.body.quantity);
     const db = loadDB();
-    const svc = db.services.find(s => s.japId == serviceJapId);
+    const svc = db.services.find(function(s) { return s.japId == serviceJapId; });
     if (!svc) return res.status(404).json({ success: false, error: 'Service not found' });
 
     const amount = ((quantity / 1000) * svc.myPrice).toFixed(2);
@@ -188,14 +181,13 @@ app.post('/api/create-order', async (req, res) => {
   }
 });
 
-/* PayPal capture → JAP automatique */
 app.post('/api/pay-order', async (req, res) => {
   try {
     const orderId = req.body.orderId;
     const method = req.body.method;
     const paymentRef = req.body.paymentRef;
     const db = loadDB();
-    const order = db.orders.find(o => o.id === orderId);
+    const order = db.orders.find(function(o) { return o.id === orderId; });
     if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
 
     let paid = false;
@@ -225,17 +217,17 @@ app.post('/api/pay-order', async (req, res) => {
   }
 });
 
-/* ---------- MANUAL CLAIM (USDT / Binance / PayPal Transfer / Skrill) ---------- */
+/* MANUAL CLAIM */
 app.post('/api/claim-payment', async (req, res) => {
   try {
     const orderId = req.body.orderId;
     const method = req.body.method;
     const paymentRef = req.body.paymentRef;
     if (!orderId || !method || !paymentRef) {
-      return res.status(400).json({ success: false, error: 'Missing orderId, method or paymentRef' });
+      return res.status(400).json({ success: false, error: 'Missing data' });
     }
     const db = loadDB();
-    const order = db.orders.find(o => o.id === orderId);
+    const order = db.orders.find(function(o) { return o.id === orderId; });
     if (!order) return res.status(404).json({ success: false, error: 'Order not found: ' + orderId });
 
     order.method = method;
@@ -245,27 +237,38 @@ app.post('/api/claim-payment', async (req, res) => {
     saveDB(db);
 
     const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
-    const confirmUrl = req.protocol + '://' + req.get('host') + '/api/admin/confirm/' + order.id + '?key=' + encodeURIComponent(adminKey);
-    notifyTelegram('🔔 <b>ORDER JDID!</b>\n\n' + order.serviceName + '\n🔗 ' + order.link + '\nQty: ' + order.quantity + '\n💰 $' + (order.amount || 0).toFixed(2) + '\nPaid: ' + order.method + '\nRef: ' + (order.payRef || '-') + '\nID: ' + order.id + '\n\n✅ <a href="' + confirmUrl + '">CONFIRM DELIVERY</a>');
+    const host = req.protocol + '://' + req.get('host');
+    const confirmUrl = host + '/api/admin/confirm/' + order.id + '?key=' + encodeURIComponent(adminKey);
 
+    const msg = '<b>ORDER JDID</b>\n\n' +
+      order.serviceName + '\n' +
+      'Link: ' + order.link + '\n' +
+      'Qty: ' + order.quantity + '\n' +
+      'Total: ' + money(order.amount) + '\n' +
+      'Paid: ' + order.method + '\n' +
+      'Ref: ' + (order.payRef || '-') + '\n' +
+      'ID: ' + order.id + '\n\n' +
+      'CONFIRM: ' + confirmUrl;
+
+    notifyTelegram(msg);
     res.json({ success: true, orderId: order.id });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-/* ---------- ADMIN CONFIRM (Telegram link) ---------- */
+/* ADMIN CONFIRM */
 app.get('/api/admin/confirm/:orderId', async (req, res) => {
   try {
     const key = decodeURIComponent(req.query.key || '').trim();
     const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
     if (key !== adminKey) {
-      return res.status(403).json({ success: false, error: "Cle d'administrateur incorrecte", received: key });
+      return res.status(403).json({ success: false, error: 'Wrong admin key', received: key });
     }
     const db = loadDB();
-    const order = db.orders.find(o => o.id === req.params.orderId);
-    if (!order) return res.status(404).json({ success: false, error: 'Order not found: ' + req.params.orderId });
-    if (order.japOrderId) return res.json({ success: true, message: 'Already sent to JAP', japOrderId: order.japOrderId });
+    const order = db.orders.find(function(o) { return o.id === req.params.orderId; });
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+    if (order.japOrderId) return res.json({ success: true, message: 'Already sent', japOrderId: order.japOrderId });
 
     const jap = await createJAPOrder(order.serviceJapId, order.link, order.quantity);
     if (jap && jap.order) {
@@ -274,7 +277,7 @@ app.get('/api/admin/confirm/:orderId', async (req, res) => {
       order.status = 'In Progress';
       order.confirmedAt = new Date().toISOString();
       saveDB(db);
-      notifyTelegram('✅ <b>CONFIRMED</b> — ' + order.id + ' → JAP order #' + jap.order);
+      notifyTelegram('CONFIRMED ' + order.id + ' -> JAP order #' + jap.order);
       res.json({ success: true, message: 'Order sent to JAP!', japOrderId: jap.order });
     } else {
       order.status = 'Confirm Failed';
@@ -287,21 +290,20 @@ app.get('/api/admin/confirm/:orderId', async (req, res) => {
   }
 });
 
-/* ---------- ADMIN REJECT ---------- */
+/* ADMIN REJECT */
 app.get('/api/admin/reject/:orderId', (req, res) => {
   const key = decodeURIComponent(req.query.key || '').trim();
   const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
   if (key !== adminKey) return res.status(403).json({ success: false, error: 'Wrong key' });
   const db = loadDB();
-  const order = db.orders.find(o => o.id === req.params.orderId);
+  const order = db.orders.find(function(o) { return o.id === req.params.orderId; });
   if (!order) return res.status(404).json({ success: false, error: 'Not found' });
   order.status = 'Rejected';
-  order.rejectedAt = new Date().toISOString();
   saveDB(db);
   res.json({ success: true, message: 'Order rejected' });
 });
 
-/* ---------- ORDERS LECTURE ---------- */
+/* ORDERS */
 app.get('/api/orders', (req, res) => {
   const db = loadDB();
   const sorted = db.orders.slice().sort(function(a, b) {
@@ -312,7 +314,7 @@ app.get('/api/orders', (req, res) => {
 
 app.get('/api/order-status/:orderId', async (req, res) => {
   const db = loadDB();
-  const order = db.orders.find(o => o.id === req.params.orderId);
+  const order = db.orders.find(function(o) { return o.id === req.params.orderId; });
   if (!order) return res.status(404).json({ error: 'Not found' });
   if (order.japOrderId) {
     try {
@@ -331,10 +333,11 @@ app.get('/api/order-status/:orderId', async (req, res) => {
 
 app.get('/api/claims', (req, res) => {
   const db = loadDB();
-  res.json(db.orders.filter(o => o.status === 'Pending'));
+  const pending = db.orders.filter(function(o) { return o.status === 'Pending'; });
+  res.json(pending);
 });
 
-/* ---------- ADMIN ---------- */
+/* ADMIN */
 app.post('/api/admin/login', (req, res) => {
   const pass = String(req.body.password || '').trim();
   const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
@@ -347,14 +350,14 @@ app.post('/api/admin/login', (req, res) => {
 
 app.get('/api/admin/stats', (req, res) => {
   const db = loadDB();
-  const completed = db.orders.filter(o => o.status === 'Completed');
-  const totalRevenue = completed.reduce((a, o) => a + (o.amount || 0), 0);
-  const totalCost = completed.reduce((a, o) => a + (o.japCost || 0), 0);
+  const completed = db.orders.filter(function(o) { return o.status === 'Completed'; });
+  const totalRevenue = completed.reduce(function(a, o) { return a + (o.amount || 0); }, 0);
+  const totalCost = completed.reduce(function(a, o) { return a + (o.japCost || 0); }, 0);
   res.json({
     totalOrders: db.orders.length,
     completed: completed.length,
-    inProgress: db.orders.filter(o => o.status === 'In Progress').length,
-    pending: db.orders.filter(o => o.status === 'Pending').length,
+    inProgress: db.orders.filter(function(o) { return o.status === 'In Progress'; }).length,
+    pending: db.orders.filter(function(o) { return o.status === 'Pending'; }).length,
     totalRevenue: totalRevenue.toFixed(2),
     totalCost: totalCost.toFixed(2),
     totalProfit: (totalRevenue - totalCost).toFixed(2),
@@ -371,19 +374,23 @@ app.get('/api/admin/jap-balance', async (req, res) => {
   }
 });
 
-/* ---------- PAYPAL ROUTES ---------- */
+/* PAYPAL ROUTES */
 app.post('/api/paypal/create-order', async (req, res) => {
   try {
     const amount = req.body.amount;
     const description = req.body.description;
     const token = await getPayPalAccessToken();
-    const r = await axios.post('https://api-m.paypal.com/v2/checkout/orders', {
-      intent: 'CAPTURE',
-      purchase_units: [{
-        amount: { currency_code: 'USD', value: Number(amount).toFixed(2) },
-        description: String(description || 'SocialBoost order').slice(0, 127)
-      }]
-    }, { headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } });
+    const r = await axios.post(
+      'https://api-m.paypal.com/v2/checkout/orders',
+      {
+        intent: 'CAPTURE',
+        purchase_units: [{
+          amount: { currency_code: 'USD', value: Number(amount).toFixed(2) },
+          description: String(description || 'SocialBoost order').slice(0, 127)
+        }]
+      },
+      { headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } }
+    );
     res.json({ success: true, orderId: r.data.id });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -394,8 +401,11 @@ app.post('/api/paypal/capture', async (req, res) => {
   try {
     const orderId = req.body.orderId;
     const token = await getPayPalAccessToken();
-    const r = await axios.post('https://api-m.paypal.com/v2/checkout/orders/' + orderId + '/capture',
-      {}, { headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } });
+    const r = await axios.post(
+      'https://api-m.paypal.com/v2/checkout/orders/' + orderId + '/capture',
+      {},
+      { headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } }
+    );
     const order = r.data;
     if (order.status === 'COMPLETED') {
       const amount = parseFloat(order.purchase_units[0].payments.captures[0].amount.value);
@@ -409,7 +419,7 @@ app.post('/api/paypal/capture', async (req, res) => {
   }
 });
 
-/* ---------- CRYPTOMUS ---------- */
+/* CRYPTOMUS */
 app.post('/api/usdt/create-invoice', async (req, res) => {
   try {
     const amount = req.body.amount;
@@ -438,7 +448,7 @@ app.post('/api/usdt/webhook', async (req, res) => {
     const data = req.body;
     if (data.status === 'paid' || data.status === 'paid_over') {
       const db = loadDB();
-      const order = db.orders.find(o => o.id === data.order_id);
+      const order = db.orders.find(function(o) { return o.id === data.order_id; });
       if (order && order.status === 'Pending') {
         order.status = 'In Progress';
         order.paidAt = new Date().toISOString();
@@ -448,4 +458,53 @@ app.post('/api/usdt/webhook', async (req, res) => {
           order.japCost = ((order.quantity / 1000) * (order.japRate || 0)).toFixed(2);
         }
         saveDB(db);
-        notifyTelegram('✅ <b>USDT AUTO-
+        notifyTelegram('USDT AUTO-PAID ' + order.id);
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* BEST SELLERS */
+app.get('/api/best-sellers', (req, res) => {
+  const db = loadDB();
+  const counts = {};
+  db.orders.forEach(function(o) {
+    if (o.serviceJapId) counts[o.serviceJapId] = (counts[o.serviceJapId] || 0) + 1;
+  });
+  const list = Object.keys(counts).map(function(japId) {
+    return { jap_id: japId, count: counts[japId] };
+  }).sort(function(a, b) { return b.count - a.count; });
+  res.json(list);
+});
+
+app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+/* AUTO-CHECK every 5 min */
+setInterval(async function() {
+  try {
+    const db = loadDB();
+    let updated = 0;
+    for (const order of db.orders) {
+      if (order.japOrderId && order.status !== 'Completed' && order.status !== 'Canceled') {
+        try {
+          const s = await checkJAPStatus(order.japOrderId);
+          if (s.status === 'Completed') { order.status = 'Completed'; updated++; }
+          if (s.status === 'Canceled') { order.status = 'Canceled'; updated++; }
+          if (s.status === 'Partial') { order.status = 'Partial'; updated++; }
+        } catch(e) {}
+      }
+    }
+    if (updated > 0) saveDB(db);
+  } catch(e) {}
+}, 5 * 60 * 1000);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log('=========================================');
+  console.log('  SocialBoost Backend - RUNNING');
+  console.log('  Port: ' + PORT);
+  console.log('=========================================');
+});
