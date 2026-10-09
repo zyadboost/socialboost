@@ -733,6 +733,48 @@ async function checkStatus(){
 })();
 
 loadServices();
+  /* 👑 ADMIN LOGIN — FIXED */
+function adminLogin(){
+  var pass = document.getElementById('admin-pass').value;
+  if(pass === PAY.ADMIN_KEY){
+    sessionStorage.setItem('sb_admin','yes');
+    document.getElementById('alogin').style.display = 'none';
+    document.getElementById('apanel').style.display = 'block';
+    if(typeof loadAdminOrders === 'function') loadAdminOrders();
+  } else {
+    alert('❌ Wrong password! L password s7i7 howa: ' + PAY.ADMIN_KEY);
+  }
+}
+
+async function loadAdminOrders(){
+  try{
+    var r = await fetch('/api/orders');
+    var orders = await r.json();
+    if(!Array.isArray(orders)) orders = [];
+    var done = orders.filter(function(o){ return o.status === 'Completed'; });
+    var rev = done.reduce(function(a,o){ return a + (o.amount || 0); }, 0);
+    var st = document.getElementById('astats');
+    if(st) st.innerHTML =
+      '<div class="ast"><b>' + orders.length + '</b><small>Total Orders</small></div>' +
+      '<div class="ast"><b>' + done.length + '</b><small>Completed</small></div>' +
+      '<div class="ast"><b>$' + rev.toFixed(2) + '</b><small>Revenue</small></div>';
+    var tbl = document.getElementById('aorders');
+    if(tbl) tbl.innerHTML = '<table><tr><th>Date</th><th>Service</th><th>Link</th><th>Qty</th><th>Amount</th><th>Status</th></tr>' +
+      orders.map(function(o){
+        return '<tr>' +
+          '<td>' + String(o.createdAt||'').slice(0,16).replace('T',' ') + '</td>' +
+          '<td>' + esc(o.serviceName) + '</td>' +
+          '<td><a href="' + esc(o.link) + '" target="_blank">link</a></td>' +
+          '<td>' + (+o.quantity).toLocaleString() + '</td>' +
+          '<td style="color:var(--cta)">$' + (o.amount||0).toFixed(2) + '</td>' +
+          '<td><b>' + esc(o.status) + '</b></td>' +
+        '</tr>';
+      }).join('') + '</table>';
+  }catch(e){
+    var t = document.getElementById('aorders');
+    if(t) t.innerHTML = '<p style="color:var(--muted)">Backend: ' + e.message + '</p>';
+  }
+}
 </script>
 </body>
 </html>
