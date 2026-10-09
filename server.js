@@ -313,6 +313,9 @@ app.post('/api/pay-order', async (req, res) => {
 
 app.post('/api/claim-payment', async (req, res) => {
   try {
+        const confirmUrl = `${req.protocol}://${req.get('host')}/api/admin/confirm/${order.id}?key=${encodeURIComponent(adminKey2())}`;
+    function adminKey2(){ return String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim(); }
+    notifyTelegram('🔔 <b>ORDER JDID!</b>\n\n' + order.serviceName + '\n🔗 ' + order.link + '\nQty: ' + order.quantity + '\n💰 ' + money(order.amount) + '\nPaid: ' + order.method + '\nRef: ' + (order.payRef||'—') + '\nID: ' + order.id + '\n\n✅ <a href="' + confirmUrl + '">CONFIRM DELIVERY</a>');
     const orderId = req.body.orderId;
     const method = req.body.method;
     const paymentRef = req.body.paymentRef;
@@ -327,7 +330,11 @@ app.post('/api/claim-payment', async (req, res) => {
 });
 
 /* 👑 Admin: confirm manual payment → launch JAP */
-app.get('/api/admin/confirm/:orderId', async (req, res) => {
+
+    const confirmUrl = 'https://socialboost-store.com/api/admin/confirm/' + order.id + '?key=' + encodeURIComponent(process.env.ADMIN_PASSWORD || '');
+    const me = order.method === 'usdt' ? '₿ USDT' : order.method === 'paypal' ? '🅿️ PayPal' :
+      order.method === 'binance' ? '🅿️ Binance Pay' : order.method === 'skrill' ? '💳 Skrill' : '📧 PayPal Transfer';
+ => {
   try {
     if (req.query.key !== process.env.ADMIN_PASSWORD) {
       return res.status(403).json({ success: false, error: 'Wrong admin key' });
@@ -410,7 +417,17 @@ setInterval(async () => {
     }
   } catch(e) { console.error('Auto-check:', e.message); }
 }, 5 * 60 * 1000);
-
+/* 📱 TELEGRAM NOTIFY — kayseft message melli kayji order claim */
+async function notifyTelegram(text) {
+  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return;
+  try {
+    await axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      chat_id: process.env.TELEGRAM_CHAT_ID,
+      text: text,
+      parse_mode: 'HTML'
+    });
+  } catch (e) { console.error('TG error:', e.message); }
+}
 const PORT = process.env.PORT || 3000;
 
 async function start() {
