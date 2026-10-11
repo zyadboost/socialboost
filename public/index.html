@@ -569,7 +569,14 @@ function goToResults(){
 function openCat(cat,typeFilter){
   activeCat=cat;
   _filterType=typeFilter||'';
-  var list=SERVICES.filter(function(s){return platformOf(s.category)===cat&&!isSub(s)});
+  var list=SERVICES.filter(function(s){
+  if(platformOf(s.category)!==cat) return false;
+  if(isSub(s)) return false;
+  var n=((s.name||'')+' '+(s.category||'')).toLowerCase();
+  if(/spam\s+on|high drop|bots?\b|prank|test service|free/i.test(n)) return false;
+  if(parseFloat(s.myPrice)<0.15) return false;
+  return true;
+});
   if(_filterType){
     list=list.filter(function(s){return ((s.name||'')+' '+(s.category||'')).toLowerCase().indexOf(_filterType.toLowerCase())!==-1});
   }
