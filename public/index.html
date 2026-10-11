@@ -609,31 +609,68 @@ function svcCard(s){
 
 /* BEST SELLERS */
 async function renderBest(){
+  var isClean=function(s){
+    var n=((s.name||'')+' '+(s.category||'')).toLowerCase();
+    if(parseFloat(s.myPrice)<0.15) return false;
+    if(/spam|high drop|bots?\b|prank|not guaranteed|test|fake|free/i.test(n)) return false;
+    return true;
+  };
+  var isGood=function(s){
+    return /guaranteed|refill/i.test(s.name||'')&&!/not guaranteed/i.test(s.name||'');
+  };
+
+  /* 1) orders b7a9 (ila kaynin) */
   var picks=[];
   try{
     var r=await fetch('/api/best-sellers');
     if(r.ok){
       var st=await r.json();
       if(st&&st.length){
-        picks=st.slice(0,6).map(function(x){return SERVICES.find(function(s){return s.japId==x.jap_id})||null}).filter(Boolean);
+        picks=st.slice(0,12).map(function(x){return SERVICES.find(function(s){return s.japId==x.jap_id})||null}).filter(Boolean).filter(isClean);
       }
     }
   }catch(e){}
-  if(!picks.length){
-    ['Followers','Likes','Views','Members','Comments','Story'].forEach(function(t){
+
+  /* 2) fallback: khtar b yed m3a criteria s7ab */
+  if(picks.length<6){
+    var wants=[
+      {kw:'followers',plats:['Instagram','TikTok']},
+      {kw:'likes',plats:['Instagram','TikTok']},
+      {kw:'views',plats:['Instagram','YouTube','TikTok']},
+      {kw:'subscribers',plats:['YouTube']},
+      {kw:'members',plats:['Telegram']},
+      {kw:'comments',plats:['Instagram','TikTok']}
+    ];
+    wants.forEach(function(w){
       var c=SERVICES.filter(function(s){
         var p=platformOf(s.category);
-        return (p==='Instagram'||p==='TikTok'||p==='YouTube')&&(s.name||'').toLowerCase().indexOf(t.toLowerCase())!==-1&&!/bots?\b|prank|not guaranteed|subscription|promo pack|starter pack/i.test((s.name||'')+' '+(s.category||''));
+        if(w.plats.indexOf(p)===-1) return false;
+        var n=(s.name||'').toLowerCase();
+        if(n.indexOf(w.kw)===-1) return false;
+        return isClean(s);
       });
-      c.sort(function(a,b){return parseFloat(a.myPrice)-parseFloat(b.myPrice)});
-      if(c[0])picks.push(c[0]);
+      var g=c.filter(isGood);
+      var pool=g.length?g:c;
+      pool.sort(function(a,b){return parseFloat(a.myPrice)-parseFloat(b.myPrice)});
+      if(pool.length){
+        var idx=Math.min(2,pool.length-1);
+        picks.push(pool[idx]);
+      }
     });
-    picks=picks.filter(function(s,i,arr){return arr.findIndex(function(x){return x.japId===s.japId})===i}).slice(0,6);
   }
-  if(!picks.length){$('bsGrid').innerHTML='<p style="color:var(--muted);text-align:center;grid-column:1/-1">Loading…</p>';return}
+
+  picks=picks.filter(function(s,i,arr){
+    return s&&arr.findIndex(function(x){return x.japId===s.japId})===i;
+  }).slice(0,6);
+
+  if(!picks.length){
+    $('bsGrid').innerHTML='<p style="color:var(--muted);text-align:center;grid-column:1/-1">Loading…</p>';
+    return;
+  }
+
   $('bsGrid').innerHTML=picks.map(function(s){
     var p=platformOf(s.category);
-    var g=/guaranteed|refill:\s*\d+/i.test(s.name||'')&&!/not guaranteed/i.test(s.name||'');
+    var g=isGood(s);
     var badge = isSub(s)
       ? '<span class="badge b-s">📦 Monthly Package</span>'
       : (g?'<span class="badge b-g">🛡️ GUARANTEED · Refill</span>':'<span class="badge b-n">⚠️ No refill — cheaper</span>');
