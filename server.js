@@ -121,7 +121,7 @@ async function verifyPayPalCapture(captureId) {
 app.get('/api/import-services', async (req, res) => {
   try {
     const japServices = await importJAPServices();
-    const margin = 3.0;
+    const margin = 2.2;
     let count = 0;
     for (const s of japServices) {
       await pool.query(
