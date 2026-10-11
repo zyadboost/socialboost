@@ -2,24 +2,54 @@ require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+const { Pool } = require('pg');
 
 const app = express();
 app.use(express.json());
 app.use(express.static('public'));
 
-const DB_FILE = path.join(__dirname, 'data.json');
+/* DATABASE — PostgreSQL (Neon) */
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
-function loadDB() {
-  try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); }
-  catch(e) { return { orders: [], services: [], clients: [], settings: { margin: 3.0 } }; }
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS services (
+      jap_id VARCHAR(50) PRIMARY KEY,
+      category TEXT,
+      name TEXT,
+      type TEXT,
+      rate NUMERIC,
+      min_qty INTEGER,
+      max_qty INTEGER,
+      my_price NUMERIC
+    )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS orders (
+      id VARCHAR(50) PRIMARY KEY,
+      service_jap_id VARCHAR(50),
+      service_name TEXT,
+      link TEXT,
+      quantity INTEGER,
+      amount NUMERIC,
+      jap_rate NUMERIC,
+      jap_order_id VARCHAR(50),
+      jap_cost NUMERIC,
+      method VARCHAR(30),
+      status VARCHAR(30),
+      pay_ref TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      paid_at TIMESTAMP,
+      completed_at TIMESTAMP
+    )`);
+  console.log('Database ready');
 }
-function saveDB(db) { fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
 
 function money(n) { return '$' + Number(n).toFixed(2); }
 
-/* TELEGRAM NOTIFY */
+/* TELEGRAM */
 async function notifyTelegram(text) {
   if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return;
   try {
@@ -80,101 +110,79 @@ async function verifyPayPalCapture(captureId) {
       { headers: { 'Authorization': 'Bearer ' + token } }
     );
     const cap = r.data;
-    if (cap.status === 'COMPLETED') {
-      return { success: true, amount: parseFloat(cap.amount.value) };
-    }
+    if (cap.status === 'COMPLETED') return { success: true, amount: parseFloat(cap.amount.value) };
     return { success: false };
   } catch (err) {
     return { success: false, error: err.message };
   }
 }
 
-function cryptomusSign(body) {
-  return crypto.createHmac('sha512', process.env.CRYPTOMUS_PAY_KEY || '')
-    .update(JSON.stringify(body)).digest('hex');
-}
-
 /* SERVICES */
 app.get('/api/import-services', async (req, res) => {
   try {
     const japServices = await importJAPServices();
-    const db = loadDB();
-    const margin = (db.settings && db.settings.margin) || 3.0;
-    db.services = japServices.map(function(s) {
-      return {
-        japId: s.service,
-        category: s.category,
-        name: s.name,
-        type: s.type,
-        rate: parseFloat(s.rate),
-        min: parseInt(s.min),
-        max: parseInt(s.max),
-        myPrice: (parseFloat(s.rate) * margin).toFixed(2)
-      };
-    });
-    saveDB(db);
-    res.json({ success: true, count: db.services.length });
+    const margin = 3.0;
+    let count = 0;
+    for (const s of japServices) {
+      await pool.query(
+        `INSERT INTO services (jap_id, category, name, type, rate, min_qty, max_qty, my_price)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (jap_id) DO UPDATE SET
+           category=EXCLUDED.category, name=EXCLUDED.name, type=EXCLUDED.type,
+           rate=EXCLUDED.rate, min_qty=EXCLUDED.min_qty, max_qty=EXCLUDED.max_qty,
+           my_price=EXCLUDED.my_price`,
+        [String(s.service), s.category, s.name, s.type,
+         parseFloat(s.rate), parseInt(s.min), parseInt(s.max),
+         (parseFloat(s.rate) * margin).toFixed(2)]
+      );
+      count++;
+    }
+    res.json({ success: true, count: count });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-app.get('/api/services', (req, res) => {
-  const db = loadDB();
-  res.json(db.services);
+app.get('/api/services', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM services ORDER BY jap_id');
+    res.json(r.rows.map(function(s) {
+      return {
+        japId: s.jap_id, category: s.category, name: s.name, type: s.type,
+        rate: parseFloat(s.rate), min: s.min_qty, max: s.max_qty, myPrice: parseFloat(s.my_price)
+      };
+    }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/update-margin', (req, res) => {
-  const margin = parseFloat(req.body.margin);
-  const db = loadDB();
-  db.settings.margin = margin;
-  db.services = db.services.map(function(s) {
-    const copy = Object.assign({}, s);
-    copy.myPrice = (s.rate * margin).toFixed(2);
-    return copy;
-  });
-  saveDB(db);
-  res.json({ success: true, count: db.services.length });
-});
-
-app.post('/api/update-price', (req, res) => {
+app.post('/api/update-price', async (req, res) => {
   const japId = req.body.japId;
   const newPrice = parseFloat(req.body.newPrice);
-  const db = loadDB();
-  const svc = db.services.find(function(s) { return s.japId == japId; });
-  if (!svc) return res.status(404).json({ success: false });
-  svc.myPrice = newPrice;
-  saveDB(db);
+  await pool.query('UPDATE services SET my_price=$1 WHERE jap_id=$2', [newPrice, String(japId)]);
   res.json({ success: true });
 });
 
 /* ORDERS */
 app.post('/api/create-order', async (req, res) => {
   try {
-    const serviceJapId = req.body.serviceJapId;
+    const serviceJapId = String(req.body.serviceJapId);
     const link = req.body.link;
     const quantity = parseInt(req.body.quantity);
-    const db = loadDB();
-    const svc = db.services.find(function(s) { return s.japId == serviceJapId; });
+    const r = await pool.query('SELECT * FROM services WHERE jap_id=$1', [serviceJapId]);
+    const svc = r.rows[0];
     if (!svc) return res.status(404).json({ success: false, error: 'Service not found' });
 
-    const amount = ((quantity / 1000) * svc.myPrice).toFixed(2);
+    const amount = ((quantity / 1000) * parseFloat(svc.my_price)).toFixed(2);
     const orderId = 'ORD-' + Date.now();
 
-    const order = {
-      id: orderId,
-      serviceJapId: serviceJapId,
-      serviceName: svc.name,
-      link: link,
-      quantity: quantity,
-      amount: parseFloat(amount),
-      japRate: svc.rate,
-      method: 'pending',
-      status: 'Pending',
-      createdAt: new Date().toISOString()
-    };
-    db.orders.push(order);
-    saveDB(db);
+    await pool.query(
+      `INSERT INTO orders (id, service_jap_id, service_name, link, quantity, amount, jap_rate, method, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [orderId, serviceJapId, svc.name, link, quantity, amount,
+       parseFloat(svc.rate), 'pending', 'Pending']
+    );
     res.json({ success: true, orderId: orderId, amount: parseFloat(amount) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -186,32 +194,30 @@ app.post('/api/pay-order', async (req, res) => {
     const orderId = req.body.orderId;
     const method = req.body.method;
     const paymentRef = req.body.paymentRef;
-    const db = loadDB();
-    const order = db.orders.find(function(o) { return o.id === orderId; });
+    const r = await pool.query('SELECT * FROM orders WHERE id=$1', [orderId]);
+    const order = r.rows[0];
     if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
 
     let paid = false;
     if (method === 'paypal') {
       const v = await verifyPayPalCapture(paymentRef);
-      if (v.success && v.amount >= order.amount) paid = true;
+      if (v.success && v.amount >= parseFloat(order.amount)) paid = true;
     }
     if (!paid) return res.status(400).json({ success: false, error: 'Payment verification failed' });
 
-    order.method = 'paypal';
-    order.payRef = paymentRef;
-    order.paidAt = new Date().toISOString();
-
-    const jap = await createJAPOrder(order.serviceJapId, order.link, order.quantity);
+    const jap = await createJAPOrder(order.service_jap_id, order.link, order.quantity);
     if (jap && jap.order) {
-      order.japOrderId = jap.order;
-      order.japCost = ((order.quantity / 1000) * (order.japRate || 0)).toFixed(2);
-      order.status = 'In Progress';
+      const japCost = ((order.quantity / 1000) * parseFloat(order.jap_rate || 0)).toFixed(2);
+      await pool.query(
+        `UPDATE orders SET method=$1, pay_ref=$2, paid_at=NOW(), jap_order_id=$3, jap_cost=$4, status='In Progress' WHERE id=$5`,
+        [method, paymentRef, String(jap.order), japCost, orderId]
+      );
+      res.json({ success: true, order: { id: orderId, status: 'In Progress', japOrderId: jap.order } });
     } else {
-      order.status = 'Pending Manual';
-      order.japError = JSON.stringify(jap);
+      await pool.query(`UPDATE orders SET method=$1, pay_ref=$2, paid_at=NOW(), status='Pending Manual' WHERE id=$3`,
+        [method, paymentRef, orderId]);
+      res.json({ success: true, order: { id: orderId, status: 'Pending Manual' } });
     }
-    saveDB(db);
-    res.json({ success: true, order: order });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -226,32 +232,31 @@ app.post('/api/claim-payment', async (req, res) => {
     if (!orderId || !method || !paymentRef) {
       return res.status(400).json({ success: false, error: 'Missing data' });
     }
-    const db = loadDB();
-    const order = db.orders.find(function(o) { return o.id === orderId; });
+    const r = await pool.query('SELECT * FROM orders WHERE id=$1', [orderId]);
+    const order = r.rows[0];
     if (!order) return res.status(404).json({ success: false, error: 'Order not found: ' + orderId });
 
-    order.method = method;
-    order.payRef = paymentRef;
-    order.status = 'Pending';
-    order.claimedAt = new Date().toISOString();
-    saveDB(db);
+    await pool.query(
+      `UPDATE orders SET method=$1, pay_ref=$2, status='Pending', claimed_at=NOW() WHERE id=$3`,
+      [method, paymentRef, orderId]
+    );
 
     const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
     const host = req.protocol + '://' + req.get('host');
-    const confirmUrl = host + '/api/admin/confirm/' + order.id + '?key=' + encodeURIComponent(adminKey);
+    const confirmUrl = host + '/api/admin/confirm/' + orderId + '?key=' + encodeURIComponent(adminKey);
 
     const msg = '<b>ORDER JDID</b>\n\n' +
-      order.serviceName + '\n' +
+      order.service_name + '\n' +
       'Link: ' + order.link + '\n' +
       'Qty: ' + order.quantity + '\n' +
       'Total: ' + money(order.amount) + '\n' +
-      'Paid: ' + order.method + '\n' +
-      'Ref: ' + (order.payRef || '-') + '\n' +
-      'ID: ' + order.id + '\n\n' +
+      'Paid: ' + method + '\n' +
+      'Ref: ' + paymentRef + '\n' +
+      'ID: ' + orderId + '\n\n' +
       'CONFIRM: ' + confirmUrl;
 
     notifyTelegram(msg);
-    res.json({ success: true, orderId: order.id });
+    res.json({ success: true, orderId: orderId });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -265,24 +270,22 @@ app.get('/api/admin/confirm/:orderId', async (req, res) => {
     if (key !== adminKey) {
       return res.status(403).json({ success: false, error: 'Wrong admin key', received: key });
     }
-    const db = loadDB();
-    const order = db.orders.find(function(o) { return o.id === req.params.orderId; });
+    const r = await pool.query('SELECT * FROM orders WHERE id=$1', [req.params.orderId]);
+    const order = r.rows[0];
     if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
-    if (order.japOrderId) return res.json({ success: true, message: 'Already sent', japOrderId: order.japOrderId });
+    if (order.jap_order_id) return res.json({ success: true, message: 'Already sent', japOrderId: order.jap_order_id });
 
-    const jap = await createJAPOrder(order.serviceJapId, order.link, order.quantity);
+    const jap = await createJAPOrder(order.service_jap_id, order.link, order.quantity);
     if (jap && jap.order) {
-      order.japOrderId = jap.order;
-      order.japCost = ((order.quantity / 1000) * (order.japRate || 0)).toFixed(2);
-      order.status = 'In Progress';
-      order.confirmedAt = new Date().toISOString();
-      saveDB(db);
-      notifyTelegram('CONFIRMED ' + order.id + ' -> JAP order #' + jap.order);
+      const japCost = ((order.quantity / 1000) * parseFloat(order.jap_rate || 0)).toFixed(2);
+      await pool.query(
+        `UPDATE orders SET jap_order_id=$1, jap_cost=$2, status='In Progress', completed_at=NULL WHERE id=$3`,
+        [String(jap.order), japCost, orderIdSafe(req.params.orderId)]
+      );
+      notifyTelegram('CONFIRMED ' + req.params.orderId + ' -> JAP order #' + jap.order);
       res.json({ success: true, message: 'Order sent to JAP!', japOrderId: jap.order });
     } else {
-      order.status = 'Confirm Failed';
-      order.japError = JSON.stringify(jap);
-      saveDB(db);
+      await pool.query(`UPDATE orders SET status='Confirm Failed' WHERE id=$1`, [req.params.orderId]);
       res.status(500).json({ success: false, error: 'JAP error: ' + JSON.stringify(jap) });
     }
   } catch (err) {
@@ -290,78 +293,92 @@ app.get('/api/admin/confirm/:orderId', async (req, res) => {
   }
 });
 
+function orderIdSafe(id) { return String(id); }
+
 /* ADMIN REJECT */
-app.get('/api/admin/reject/:orderId', (req, res) => {
+app.get('/api/admin/reject/:orderId', async (req, res) => {
   const key = decodeURIComponent(req.query.key || '').trim();
   const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
   if (key !== adminKey) return res.status(403).json({ success: false, error: 'Wrong key' });
-  const db = loadDB();
-  const order = db.orders.find(function(o) { return o.id === req.params.orderId; });
-  if (!order) return res.status(404).json({ success: false, error: 'Not found' });
-  order.status = 'Rejected';
-  saveDB(db);
+  await pool.query(`UPDATE orders SET status='Rejected' WHERE id=$1`, [req.params.orderId]);
   res.json({ success: true, message: 'Order rejected' });
 });
 
-/* ORDERS */
-app.get('/api/orders', (req, res) => {
-  const db = loadDB();
-  const sorted = db.orders.slice().sort(function(a, b) {
-    return new Date(b.createdAt) - new Date(a.createdAt);
-  });
-  res.json(sorted);
+/* ORDERS LECTURE */
+app.get('/api/orders', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM orders ORDER BY created_at DESC LIMIT 500');
+    res.json(r.rows.map(function(o) {
+      return {
+        id: o.id, serviceJapId: o.service_jap_id, serviceName: o.service_name,
+        link: o.link, quantity: o.quantity, amount: parseFloat(o.amount),
+        japRate: parseFloat(o.jap_rate), japOrderId: o.jap_order_id,
+        japCost: o.jap_cost ? parseFloat(o.jap_cost) : 0,
+        method: o.method, status: o.status, payRef: o.pay_ref,
+        createdAt: o.created_at
+      };
+    }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/order-status/:orderId', async (req, res) => {
-  const db = loadDB();
-  const order = db.orders.find(function(o) { return o.id === req.params.orderId; });
+  const r = await pool.query('SELECT * FROM orders WHERE id=$1', [req.params.orderId]);
+  const order = r.rows[0];
   if (!order) return res.status(404).json({ error: 'Not found' });
-  if (order.japOrderId) {
+  if (order.jap_order_id) {
     try {
-      const status = await checkJAPStatus(order.japOrderId);
-      if (status.status) {
-        order.japStatus = status.status;
-        if (status.status === 'Completed') order.status = 'Completed';
-        if (status.status === 'Canceled') order.status = 'Canceled';
-        if (status.status === 'Partial') order.status = 'Partial';
-        saveDB(db);
+      const s = await checkJAPStatus(order.jap_order_id);
+      if (s.status) {
+        let newStatus = order.status;
+        if (s.status === 'Completed') newStatus = 'Completed';
+        if (s.status === 'Canceled') newStatus = 'Canceled';
+        if (s.status === 'Partial') newStatus = 'Partial';
+        if (newStatus !== order.status) {
+          await pool.query('UPDATE orders SET status=$1 WHERE id=$2', [newStatus, req.params.orderId]);
+          order.status = newStatus;
+        }
+        order.japStatus = s.status;
       }
     } catch(e) {}
   }
-  res.json(order);
+  res.json({
+    id: order.id, serviceName: order.service_name, link: order.link,
+    quantity: order.quantity, amount: parseFloat(order.amount),
+    method: order.method, status: order.status
+  });
 });
 
-app.get('/api/claims', (req, res) => {
-  const db = loadDB();
-  const pending = db.orders.filter(function(o) { return o.status === 'Pending'; });
-  res.json(pending);
+app.get('/api/claims', async (req, res) => {
+  const r = await pool.query(`SELECT * FROM orders WHERE status='Pending' ORDER BY created_at DESC`);
+  res.json(r.rows);
 });
 
 /* ADMIN */
 app.post('/api/admin/login', (req, res) => {
   const pass = String(req.body.password || '').trim();
   const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
-  if (pass === adminKey) {
-    res.json({ success: true });
-  } else {
-    res.status(401).json({ success: false, error: 'Wrong password' });
-  }
+  if (pass === adminKey) res.json({ success: true });
+  else res.status(401).json({ success: false, error: 'Wrong password' });
 });
 
-app.get('/api/admin/stats', (req, res) => {
-  const db = loadDB();
-  const completed = db.orders.filter(function(o) { return o.status === 'Completed'; });
-  const totalRevenue = completed.reduce(function(a, o) { return a + (o.amount || 0); }, 0);
-  const totalCost = completed.reduce(function(a, o) { return a + (o.japCost || 0); }, 0);
+app.get('/api/admin/stats', async (req, res) => {
+  const r = await pool.query(`SELECT
+    COUNT(*) as total,
+    COUNT(CASE WHEN status='Completed' THEN 1 END) as completed,
+    COUNT(CASE WHEN status='In Progress' THEN 1 END) as in_progress,
+    COUNT(CASE WHEN status='Pending' THEN 1 END) as pending,
+    COALESCE(SUM(CASE WHEN status IN ('Completed','In Progress','Partial') THEN amount ELSE 0 END),0) as revenue,
+    COALESCE(SUM(CASE WHEN status IN ('Completed','In Progress','Partial') THEN jap_cost ELSE 0 END),0) as cost
+    FROM orders`);
+  const s = r.rows[0];
   res.json({
-    totalOrders: db.orders.length,
-    completed: completed.length,
-    inProgress: db.orders.filter(function(o) { return o.status === 'In Progress'; }).length,
-    pending: db.orders.filter(function(o) { return o.status === 'Pending'; }).length,
-    totalRevenue: totalRevenue.toFixed(2),
-    totalCost: totalCost.toFixed(2),
-    totalProfit: (totalRevenue - totalCost).toFixed(2),
-    services: db.services.length
+    totalOrders: parseInt(s.total), completed: parseInt(s.completed),
+    inProgress: parseInt(s.in_progress), pending: parseInt(s.pending),
+    totalRevenue: parseFloat(s.revenue).toFixed(2),
+    totalCost: parseFloat(s.cost).toFixed(2),
+    totalProfit: (parseFloat(s.revenue) - parseFloat(s.cost)).toFixed(2)
   });
 });
 
@@ -419,65 +436,14 @@ app.post('/api/paypal/capture', async (req, res) => {
   }
 });
 
-/* CRYPTOMUS */
-app.post('/api/usdt/create-invoice', async (req, res) => {
-  try {
-    const amount = req.body.amount;
-    const orderId = req.body.orderId;
-    const body = {
-      amount: Number(amount).toFixed(2),
-      currency: 'USDT',
-      order_id: orderId,
-      url_callback: req.protocol + '://' + req.get('host') + '/api/usdt/webhook'
-    };
-    const r = await axios.post('https://api.cryptomus.com/v1/payment', body, {
-      headers: {
-        'merchant': process.env.CRYPTOMUS_MERCHANT,
-        'sign': cryptomusSign(body),
-        'Content-Type': 'application/json'
-      }
-    });
-    res.json({ success: true, invoiceUrl: r.data.result.url, invoiceId: r.data.result.uuid });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/api/usdt/webhook', async (req, res) => {
-  try {
-    const data = req.body;
-    if (data.status === 'paid' || data.status === 'paid_over') {
-      const db = loadDB();
-      const order = db.orders.find(function(o) { return o.id === data.order_id; });
-      if (order && order.status === 'Pending') {
-        order.status = 'In Progress';
-        order.paidAt = new Date().toISOString();
-        const jap = await createJAPOrder(order.serviceJapId, order.link, order.quantity);
-        if (jap && jap.order) {
-          order.japOrderId = jap.order;
-          order.japCost = ((order.quantity / 1000) * (order.japRate || 0)).toFixed(2);
-        }
-        saveDB(db);
-        notifyTelegram('USDT AUTO-PAID ' + order.id);
-      }
-    }
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 /* BEST SELLERS */
-app.get('/api/best-sellers', (req, res) => {
-  const db = loadDB();
-  const counts = {};
-  db.orders.forEach(function(o) {
-    if (o.serviceJapId) counts[o.serviceJapId] = (counts[o.serviceJapId] || 0) + 1;
-  });
-  const list = Object.keys(counts).map(function(japId) {
-    return { jap_id: japId, count: counts[japId] };
-  }).sort(function(a, b) { return b.count - a.count; });
-  res.json(list);
+app.get('/api/best-sellers', async (req, res) => {
+  const r = await pool.query(
+    `SELECT service_jap_id as jap_id, COUNT(*) as count
+     FROM orders WHERE service_jap_id IS NOT NULL
+     GROUP BY service_jap_id ORDER BY count DESC LIMIT 12`
+  );
+  res.json(r.rows);
 });
 
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
@@ -485,26 +451,29 @@ app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISO
 /* AUTO-CHECK every 5 min */
 setInterval(async function() {
   try {
-    const db = loadDB();
-    let updated = 0;
-    for (const order of db.orders) {
-      if (order.japOrderId && order.status !== 'Completed' && order.status !== 'Canceled') {
-        try {
-          const s = await checkJAPStatus(order.japOrderId);
-          if (s.status === 'Completed') { order.status = 'Completed'; updated++; }
-          if (s.status === 'Canceled') { order.status = 'Canceled'; updated++; }
-          if (s.status === 'Partial') { order.status = 'Partial'; updated++; }
-        } catch(e) {}
-      }
+    const r = await pool.query(`SELECT * FROM orders WHERE jap_order_id IS NOT NULL AND status IN ('In Progress','Processing')`);
+    for (const order of r.rows) {
+      try {
+        const s = await checkJAPStatus(order.jap_order_id);
+        if (s.status === 'Completed') await pool.query(`UPDATE orders SET status='Completed', completed_at=NOW() WHERE id=$1`, [order.id]);
+        if (s.status === 'Canceled') await pool.query(`UPDATE orders SET status='Canceled' WHERE id=$1`, [order.id]);
+        if (s.status === 'Partial') await pool.query(`UPDATE orders SET status='Partial' WHERE id=$1`, [order.id]);
+      } catch(e) {}
     }
-    if (updated > 0) saveDB(db);
   } catch(e) {}
 }, 5 * 60 * 1000);
 
+/* START */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, function() {
-  console.log('=========================================');
-  console.log('  SocialBoost Backend - RUNNING');
-  console.log('  Port: ' + PORT);
-  console.log('=========================================');
+initDB().then(function() {
+  app.listen(PORT, function() {
+    console.log('=========================================');
+    console.log('  SocialBoost Backend - RUNNING');
+    console.log('  Database: PostgreSQL (Neon) - DAIMA');
+    console.log('  Port: ' + PORT);
+    console.log('=========================================');
+  });
+}).catch(function(err) {
+  console.error('DB init FAILED: ' + err.message);
+  process.exit(1);
 });
