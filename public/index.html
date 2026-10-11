@@ -474,7 +474,16 @@ function tLabel(s){var n=((s.name||'')+' '+(s.category||'')).toLowerCase();for(v
 function isSub(s){
   return /subscription|promo pack|starter pack|engagement.*pack|monthly/i.test((s.name||'')+' '+(s.category||''));
 }
-function shortN(n){var x=String(n||'').replace(/\s*\[(?:Max:?[^\]]*|Start Time:?[^\]]*|Speed:?[^\]]*|Refill:?[^\]]*)\]/gi,'').replace(/&amp;/g,'&').replace(/\s{2,}/g,' ').trim();return x.length>48?x.slice(0,48)+'…':x}
+function shortN(n){
+  var x=String(n||'')
+    .replace(/\s*\[(?:Max:?[^\]]*|Start Time:?[^\]]*|Speed:?[^\]]*|Refill:?[^\]]*)\]/gi,'')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}]/gu,'')
+    .replace(/\[[^\]]*\]/g,'')
+    .replace(/&amp;/g,'&')
+    .replace(/\s{2,}/g,' ')
+    .trim();
+  return x.length>48?x.slice(0,48)+'…':x;
+}
 
 /* 💰 Price display */
 function priceHtml(s){
