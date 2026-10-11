@@ -445,7 +445,45 @@ app.get('/api/best-sellers', async (req, res) => {
   );
   res.json(r.rows);
 });
-
+/* RESET DB — ms7 tables l qdam o 3awd sna3hom (gha merra we7da!) */
+app.get('/api/reset-db', async (req, res) => {
+  try {
+    await pool.query('DROP TABLE IF EXISTS services CASCADE');
+    await pool.query('DROP TABLE IF EXISTS orders CASCADE');
+    await pool.query(`
+      CREATE TABLE services (
+        jap_id VARCHAR(50) PRIMARY KEY,
+        category TEXT,
+        name TEXT,
+        type TEXT,
+        rate NUMERIC,
+        min_qty INTEGER,
+        max_qty INTEGER,
+        my_price NUMERIC
+      )`);
+    await pool.query(`
+      CREATE TABLE orders (
+        id VARCHAR(50) PRIMARY KEY,
+        service_jap_id VARCHAR(50),
+        service_name TEXT,
+        link TEXT,
+        quantity INTEGER,
+        amount NUMERIC,
+        jap_rate NUMERIC,
+        jap_order_id VARCHAR(50),
+        jap_cost NUMERIC,
+        method VARCHAR(30),
+        status VARCHAR(30),
+        pay_ref TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        paid_at TIMESTAMP,
+        completed_at TIMESTAMP
+      )`);
+    res.json({ success: true, message: 'Database reset OK — daba dir /api/import-services' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
 /* AUTO-CHECK every 5 min */
