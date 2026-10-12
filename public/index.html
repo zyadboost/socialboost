@@ -619,7 +619,6 @@ function bestPerType(list){
     var arr=byType[t];
     /* sort b l price: l arkhas l awal */
     arr.sort(function(a,b){return parseFloat(a.myPrice)-parseFloat(b.myPrice)});
-    /* khtar l arkhas (deja filtri l SPAM/HIGH DROP f openCat) */
     result.push(arr[0]);
   });
   result.sort(function(a,b){return tOf(a)-tOf(b)||parseFloat(a.myPrice)-parseFloat(b.myPrice)});
@@ -661,8 +660,6 @@ async function renderBest(){
       }
     }
   }catch(e){}
-
-  /* 2) fallback: khtar b yed m3a criteria s7ab */
   if(picks.length<6){
     var wants=[
       {kw:'followers',plats:['Instagram','TikTok']},
