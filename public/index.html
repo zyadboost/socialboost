@@ -590,10 +590,8 @@ function openCat(cat,typeFilter){
     list=list.filter(function(s){return ((s.name||'')+' '+(s.category||'')).toLowerCase().indexOf(_filterType.toLowerCase())!==-1});
   }
   var isG=function(s){return /guaranteed|refill:\s*\d+/i.test(s.name||'')&&!/not guaranteed/i.test(s.name||'')};
-  _all=[].concat(
-    list.filter(isG).sort(function(a,b){return tOf(a)-tOf(b)||parseFloat(a.myPrice)-parseFloat(b.myPrice)}),
-    list.filter(function(s){return !isG(s)}).sort(function(a,b){return tOf(a)-tOf(b)||parseFloat(a.myPrice)-parseFloat(b.myPrice)})
-  );
+  /* 🏆 L a7san service f kol TYPE (mashi 80 duplicates) */
+  _all=bestPerType(list);
   _shown=0;
   $('cv-title').textContent=cat+(_filterType?' — '+_filterType:'')+' Services';
   $('cv-grid').innerHTML='';
@@ -603,12 +601,32 @@ function openCat(cat,typeFilter){
 }
 function closeCat(){$('catview').style.display='none';$('finder').scrollIntoView({behavior:'smooth'})}
 function loadMore(){
+function loadMore(){
   var b=$('moreBtn');b.style.display='none';
   var next=_all.slice(_shown,_shown+48);
   $('cv-grid').insertAdjacentHTML('beforeend',next.map(svcCard).join(''));
   _shown+=next.length;
   var rem=_all.length-_shown;
-  if(rem>0){b.textContent='📥 Load More — '+rem+' services left';b.style.display='block'}
+  if(rem>0){b.textContent='Load More — '+rem+' services left';b.style.display='block'}
+}
+/* 🏆 khtar l A7SAN service f kol type (arkhas mn les nadiyin) */
+function bestPerType(list){
+  var byType={};
+  list.forEach(function(s){
+    var t=tLabel(s);
+    if(!byType[t]) byType[t]=[];
+    byType[t].push(s);
+  });
+  var result=[];
+  Object.keys(byType).forEach(function(t){
+    var arr=byType[t];
+    /* sort b l price: l arkhas l awal */
+    arr.sort(function(a,b){return parseFloat(a.myPrice)-parseFloat(b.myPrice)});
+    /* khtar l arkhas (deja filtri l SPAM/HIGH DROP f openCat) */
+    result.push(arr[0]);
+  });
+  result.sort(function(a,b){return tOf(a)-tOf(b)||parseFloat(a.myPrice)-parseFloat(b.myPrice)});
+  return result;
 }
 function svcCard(s){
   var p=platformOf(s.category);
