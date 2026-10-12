@@ -590,6 +590,7 @@ function openCat(cat,typeFilter){
     list=list.filter(function(s){return ((s.name||'')+' '+(s.category||'')).toLowerCase().indexOf(_filterType.toLowerCase())!==-1});
   }
   var isG=function(s){return /guaranteed|refill:\s*\d+/i.test(s.name||'')&&!/not guaranteed/i.test(s.name||'')};
+  _all=[].concat(
   /* 🏆 L a7san service f kol TYPE (mashi 80 duplicates) */
   _all=bestPerType(list);
   _shown=0;
