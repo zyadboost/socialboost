@@ -599,7 +599,6 @@ function openCat(cat,typeFilter){
 }
 function closeCat(){$('catview').style.display='none';$('finder').scrollIntoView({behavior:'smooth'})}
 function loadMore(){
-function loadMore(){
   var b=$('moreBtn');b.style.display='none';
   var next=_all.slice(_shown,_shown+48);
   $('cv-grid').insertAdjacentHTML('beforeend',next.map(svcCard).join(''));
