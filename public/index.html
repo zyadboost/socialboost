@@ -474,15 +474,21 @@ function tLabel(s){var n=((s.name||'')+' '+(s.category||'')).toLowerCase();for(v
 function isSub(s){
   return /subscription|promo pack|starter pack|engagement.*pack|monthly/i.test((s.name||'')+' '+(s.category||''));
 }
-function shortN(n){
-  var x=String(n||'')
-    .replace(/\s*\[(?:Max:?[^\]]*|Start Time:?[^\]]*|Speed:?[^\]]*|Refill:?[^\]]*)\]/gi,'')
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}]/gu,'')
-    .replace(/\[[^\]]*\]/g,'')
-    .replace(/&amp;/g,'&')
-    .replace(/\s{2,}/g,' ')
-    .trim();
-  return x.length>48?x.slice(0,48)+'…':x;
+function shortN(n){var x=String(n||'').replace(/\s*\[(?:Max:?[^\]]*|Start Time:?[^\]]*|Speed:?[^\]]*|Refill:?[^\]]*)\]/gi,'').replace(/&amp;/g,'&').replace(/\s{2,}/g,' ').trim();return x.length>48?x.slice(0,48)+'…':x}
+function svcLabel(s){
+  var base=shortN(s.name);
+  var cat=(s.category||'');
+  var tag='';
+  if(/targeted|brazil|india|usa|turkey|europe|arab|indonesia|france|germany/i.test(cat+' '+base)) tag='Targeted';
+  else if(/verified/i.test(cat+' '+base)) tag='Verified';
+  else if(/auto[- ]?refill/i.test(base)) tag='Auto-Refill';
+  else if(/real looking/i.test(base)) tag='Real Looking';
+  else if(/top|exclusive/i.test(cat+' '+base)) tag='Premium';
+  else if(/hq/i.test(base)) tag='HQ';
+  else if(/low drop/i.test(base)) tag='Low Drop';
+  else if(/no refill/i.test(base)) tag='Standard';
+  else if(/guaranteed|refill/i.test(base)) tag='Guaranteed';
+  return tag ? base+' — '+tag : base;
 }
 
 /* 💰 Price display */
