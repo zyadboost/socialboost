@@ -589,14 +589,6 @@ function openCat(cat,typeFilter){
   if(_filterType){
     list=list.filter(function(s){return ((s.name||'')+' '+(s.category||'')).toLowerCase().indexOf(_filterType.toLowerCase())!==-1});
   }
-  _all=bestPerType(list);
-  _shown=0;
-  $('cv-title').textContent=cat+(_filterType?' — '+_filterType:'')+' Services';
-  $('cv-grid').innerHTML='';
-  loadMore();
-  $('catview').style.display='block';
-  $('finder').scrollIntoView({behavior:'smooth'});
-}
 function closeCat(){$('catview').style.display='none';$('finder').scrollIntoView({behavior:'smooth'})}
 function loadMore(){
   var b=$('moreBtn');b.style.display='none';
