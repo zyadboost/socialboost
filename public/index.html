@@ -589,15 +589,64 @@ function openCat(cat,typeFilter){
   if(_filterType){
     list=list.filter(function(s){return ((s.name||'')+' '+(s.category||'')).toLowerCase().indexOf(_filterType.toLowerCase())!==-1});
   }
+  var groups={};
+  list.forEach(function(s){
+    var t=tLabel(s);
+    if(!groups[t]) groups[t]=[];
+    groups[t].push(s);
+  });
+  var keys=Object.keys(groups).sort(function(a,b){
+    var ia=-1,ib=-1;
+    for(var i=0;i<TORD.length;i++){
+      if(ia===-1&&a.toLowerCase().indexOf(TORD[i].toLowerCase())!==-1) ia=i;
+      if(ib===-1&&b.toLowerCase().indexOf(TORD[i].toLowerCase())!==-1) ib=i;
+    }
+    if(ia===-1) ia=99;
+    if(ib===-1) ib=99;
+    return ia-ib;
+  });
+  keys.forEach(function(k){
+    groups[k].sort(function(a,b){return parseFloat(a.myPrice)-parseFloat(b.myPrice)});
+  });
+  _grouped={keys:keys,groups:groups};
+  _shown=0;
+  $('cv-title').textContent=cat+(_filterType?' — '+_filterType:'')+' Services';
+  $('cv-grid').innerHTML='';
+  loadMore();
+  $('catview').style.display='block';
+  $('finder').scrollIntoView({behavior:'smooth'});
+}
+
 function closeCat(){$('catview').style.display='none';$('finder').scrollIntoView({behavior:'smooth'})}
+
 function loadMore(){
   var b=$('moreBtn');b.style.display='none';
-  var next=_all.slice(_shown,_shown+48);
-  $('cv-grid').insertAdjacentHTML('beforeend',next.map(svcCard).join(''));
-  _shown+=next.length;
-  var rem=_all.length-_shown;
-  if(rem>0){b.textContent='Load More — '+rem+' services left';b.style.display='block'}
+  var html='';
+  var added=0;
+  for(var gi=0; gi<_grouped.keys.length && added<48; gi++){
+    var key=_grouped.keys[gi];
+    var arr=_grouped.groups[key];
+    if(!arr.length) continue;
+    if(arr._titleShown!==true){
+      html+='<div style="grid-column:1/-1;margin:18px 0 4px;display:flex;align-items:center;gap:10px">'
+        +'<h3 style="font-size:1.05rem;font-weight:800;color:var(--text)">'+esc(key)+'</h3>'
+        +'<span style="font-size:.72rem;color:var(--muted);background:rgba(255,255,255,.05);border:1px solid var(--border);padding:3px 10px;border-radius:20px">'+arr.length+' services</span>'
+        +'<div style="flex:1;height:1px;background:var(--border)"></div>'
+        +'</div>';
+      arr._titleShown=true;
+    }
+    var take=Math.min(arr.length, 48-added);
+    html+=arr.slice(0,take).map(svcCard).join('');
+    arr.splice(0,take);
+    added+=take;
+  }
+  $('cv-grid').insertAdjacentHTML('beforeend',html);
+  _shown+=added;
+  var remaining=0;
+  _grouped.keys.forEach(function(k){remaining+=_grouped.groups[k].length});
+  if(remaining>0){b.textContent='Load More — '+remaining+' services left';b.style.display='block'}
 }
+
 function svcCard(s){
   var p=platformOf(s.category);
   var g=/guaranteed|refill:\s*\d+/i.test(s.name||'')&&!/not guaranteed/i.test(s.name||'');
@@ -610,7 +659,6 @@ function svcCard(s){
     + '<div class="svc-f">'+priceHtml(s)+'<span class="r">'+(+s.min).toLocaleString()+'–'+(+s.max).toLocaleString()+'</span></div>'
     + '</div>';
 }
-
 /* BEST SELLERS */
 async function renderBest(){
   var isClean=function(s){
