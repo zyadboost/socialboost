@@ -476,7 +476,7 @@ function isSub(s){
 }
 function shortN(n){var x=String(n||'').replace(/\s*\[(?:Max:?[^\]]*|Start Time:?[^\]]*|Speed:?[^\]]*|Refill:?[^\]]*)\]/gi,'').replace(/&amp;/g,'&').replace(/\s{2,}/g,' ').trim();return x.length>48?x.slice(0,48)+'…':x}
 function svcLabel(s){
-  var base=shortN(s.name);
+  var base=svcLabel(s));
   var cat=(s.category||'');
   var tag='';
   if(/targeted|brazil|india|usa|turkey|europe|arab|indonesia|france|germany/i.test(cat+' '+base)) tag='Targeted';
@@ -731,7 +731,7 @@ async function renderBest(){
       ? '<span class="badge b-s">📦 Monthly Package</span>'
       : (g?'<span class="badge b-g">🛡️ GUARANTEED · Refill</span>':'<span class="badge b-n">⚠️ No refill — cheaper</span>');
     return '<div class="bsc">'
-      + '<div class="bsc-h">'+logoHtml(p,42)+'<div style="min-width:0"><b>'+esc(shortN(s.name))+'</b><small>'+esc(p)+'</small></div></div>'
+      + '<div class="bsc-h">'+logoHtml(p,42)+'<div style="min-width:0"><b>'+esc(svcLabel(s))+'</b><small>'+esc(p)+'</small></div></div>'
       + '<div class="bsc-p">'+priceHtml(s)+'</div>'
       + '<div class="bsc-f"><span>⚡ Fast Delivery</span>'+(g?'<span style="color:var(--cta);border-color:rgba(34,197,94,.4)">🛡️ Refill Available</span>':'')+'</div>'
       + '<div class="bsc-d">'+esc(s.category)+'</div>'
@@ -744,7 +744,7 @@ async function renderBest(){
 function openOrder(id){
   selectedService=SERVICES.find(function(s){return s.japId==id});
   if(!selectedService)return;
-  $('om-title').textContent=esc(shortN(selectedService.name));
+ $('om-title').textContent=esc(svcLabel(selectedService));
   $('o-qty').min=selectedService.min;$('o-qty').max=selectedService.max;
   $('o-qty').value=Math.min(Math.max(1000,+selectedService.min),+selectedService.max);
   $('qty-hint').textContent='Min: '+(+selectedService.min).toLocaleString()+' • Max: '+(+selectedService.max).toLocaleString();
