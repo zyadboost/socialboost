@@ -606,23 +606,6 @@ function loadMore(){
   var rem=_all.length-_shown;
   if(rem>0){b.textContent='Load More — '+rem+' services left';b.style.display='block'}
 }
-function bestPerType(list){
-  var byType={};
-  list.forEach(function(s){
-    var t=tLabel(s);
-    if(!byType[t]) byType[t]=[];
-    byType[t].push(s);
-  });
-  var result=[];
-  Object.keys(byType).forEach(function(t){
-    var arr=byType[t];
-    /* sort b l price: l arkhas l awal */
-    arr.sort(function(a,b){return parseFloat(a.myPrice)-parseFloat(b.myPrice)});
-    result.push(arr[0]);
-  });
-  result.sort(function(a,b){return tOf(a)-tOf(b)||parseFloat(a.myPrice)-parseFloat(b.myPrice)});
-  return result;
-}
 function svcCard(s){
   var p=platformOf(s.category);
   var g=/guaranteed|refill:\s*\d+/i.test(s.name||'')&&!/not guaranteed/i.test(s.name||'');
