@@ -476,7 +476,7 @@ function isSub(s){
 }
 function shortN(n){var x=String(n||'').replace(/\s*\[(?:Max:?[^\]]*|Start Time:?[^\]]*|Speed:?[^\]]*|Refill:?[^\]]*)\]/gi,'').replace(/&amp;/g,'&').replace(/\s{2,}/g,' ').trim();return x.length>48?x.slice(0,48)+'…':x}
 function svcLabel(s){
-  var base=svcLabel(s));
+var base=shortN(s.name);
   var cat=(s.category||'');
   var tag='';
   if(/targeted|brazil|india|usa|turkey|europe|arab|indonesia|france|germany/i.test(cat+' '+base)) tag='Targeted';
@@ -504,7 +504,6 @@ async function loadServices(){
   }catch(e){console.warn('Backend offline:',e)}
 }
 
-/* HERO PLATFORM LOGOS */
 /* HERO PLATFORM LOGOS — gha les platformes li 3ndek f services */
 function renderHeroPlats(){
   var box = document.querySelector('.hero-platforms');
