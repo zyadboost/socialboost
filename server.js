@@ -241,14 +241,22 @@ app.post('/api/claim-payment', async (req, res) => {
       [method, paymentRef, orderId]
     );
 
-      const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025@').trim();
+    const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025@').trim();
     const host = req.protocol + '://' + req.get('host');
-    const confirmUrl = host + '/api/admin/confirm/' + order.id + '?key=' + encodeURIComponent(adminKey);
-    res.json({ success: true, orderId: orderId });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+    const confirmUrl = host + '/api/admin/confirm/' + orderId + '?key=' + encodeURIComponent(adminKey);
+
+    notifyTelegram(
+      'ORDER JDID\n\n' +
+      order.service_name + '\n' +
+      'Link: ' + order.link + '\n' +
+      'Qty: ' + order.quantity + '\n' +
+      'Total: $' + Number(order.amount).toFixed(2) + '\n' +
+      'Paid: ' + method + '\n' +
+      'Ref: ' + paymentRef + '\n' +
+      'ID: ' + orderId + '\n\n' +
+      'CONFIRM: ' + confirmUrl
+    );
+
     res.json({ success: true, orderId: orderId });
   } catch (err) {
     console.error('claim-payment ERROR:', err.message);
