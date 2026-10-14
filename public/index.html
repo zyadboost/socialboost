@@ -475,8 +475,14 @@ function isSub(s){
 }
 function shortN(n){var x=String(n||'').replace(/\s*\[(?:Max|Start Time|Speed|Refill)[^\]]*\]/gi,'').replace(/&amp;/g,'&').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}]/gu,'').replace(/\s{2,}/g,' ').trim();return x.length>60?x.slice(0,60)+'…':x}
 
-function svcLabel(s){return shortN(s.name)}
-
+function svcLabel(s){
+  var base=shortN(s.name);
+  var d=parseDetails(s.name);
+  /* ila ma kaynch ta quality tag f smiya — zid Speed bach ytbayen l ferq */
+  var hasTag=/\[[^\]]+\]/.test(base)||/hq|spam|working|old accs|drop|premium|real|verified/i.test(base);
+  if(!hasTag && d.speed) base=base+' ['+d.speed+']';
+  return base;
+}
 function parseDetails(name){
   var n=String(name||'');var d={};var m;
   m=n.match(/Refill:\s*([^\]]+)\]/i);if(m)d.refill=m[1].trim();
@@ -604,8 +610,13 @@ function openCat(cat,typeFilter){
     if(ib===-1) ib=99;
     return ia-ib;
   });
-  keys.forEach(function(k){
-    groups[k].sort(function(a,b){return parseFloat(a.myPrice)-parseFloat(b.myPrice)});
+    keys.forEach(function(k){
+    groups[k].sort(function(a,b){
+      var ga=/guaranteed|refill:\s*\d+/i.test(a.name||'')&&!/not guaranteed/i.test(a.name||'');
+      var gb=/guaranteed|refill:\s*\d+/i.test(b.name||'')&&!/not guaranteed/i.test(b.name||'');
+      if(ga!==gb) return ga?-1:1;
+      return parseFloat(a.myPrice)-parseFloat(b.myPrice);
+    });
   });
   _grouped={keys:keys,groups:groups};
   _shown=0;
@@ -707,7 +718,12 @@ async function renderBest(){
       });
       var g=c.filter(isGood);
       var pool=g.length?g:c;
-      pool.sort(function(a,b){return parseFloat(a.myPrice)-parseFloat(b.myPrice)});
+            pool.sort(function(a,b){
+        var ga=/guaranteed|refill:\s*\d+/i.test(a.name||'')&&!/not guaranteed/i.test(a.name||'');
+        var gb=/guaranteed|refill:\s*\d+/i.test(b.name||'')&&!/not guaranteed/i.test(b.name||'');
+        if(ga!==gb) return ga?-1:1;
+        return parseFloat(a.myPrice)-parseFloat(b.myPrice);
+      });
       if(pool.length){
         var idx=Math.min(2,pool.length-1);
         picks.push(pool[idx]);
