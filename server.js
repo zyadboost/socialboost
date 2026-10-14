@@ -241,32 +241,25 @@ app.post('/api/claim-payment', async (req, res) => {
       [method, paymentRef, orderId]
     );
 
-    const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
+      const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025@').trim();
     const host = req.protocol + '://' + req.get('host');
-    const confirmUrl = host + '/api/admin/confirm/' + orderId + '?key=' + encodeURIComponent(adminKey);
-
-    const msg = '<b>ORDER JDID</b>\n\n' +
-      order.service_name + '\n' +
-      'Link: ' + order.link + '\n' +
-      'Qty: ' + order.quantity + '\n' +
-      'Total: ' + money(order.amount) + '\n' +
-      'Paid: ' + method + '\n' +
-      'Ref: ' + paymentRef + '\n' +
-      'ID: ' + orderId + '\n\n' +
-      'CONFIRM: ' + confirmUrl;
-
-    notifyTelegram(msg);
+    const confirmUrl = host + '/api/admin/confirm/' + order.id + '?key=' + encodeURIComponent(adminKey);
     res.json({ success: true, orderId: orderId });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
+    res.json({ success: true, orderId: orderId });
+  } catch (err) {
+    console.error('claim-payment ERROR:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 /* ADMIN CONFIRM */
 app.get('/api/admin/confirm/:orderId', async (req, res) => {
   try {
     const key = decodeURIComponent(req.query.key || '').trim();
-    const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
+    const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025@').trim();
     if (key !== adminKey) {
       return res.status(403).json({ success: false, error: 'Wrong admin key', received: key });
     }
