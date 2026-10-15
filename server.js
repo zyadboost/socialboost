@@ -273,27 +273,37 @@ app.get('/api/admin/confirm/:orderId', async (req, res) => {
     }
     const r = await pool.query('SELECT * FROM orders WHERE id=$1', [req.params.orderId]);
     const order = r.rows[0];
-    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found: ' + req.params.orderId });
     if (order.jap_order_id) return res.json({ success: true, message: 'Already sent', japOrderId: order.jap_order_id });
 
     const jap = await createJAPOrder(order.service_jap_id, order.link, order.quantity);
     if (jap && jap.order) {
       const japCost = ((order.quantity / 1000) * parseFloat(order.jap_rate || 0)).toFixed(2);
       await pool.query(
-        `UPDATE orders SET jap_order_id=$1, jap_cost=$2, status='In Progress', completed_at=NULL WHERE id=$3`,
-        [String(jap.order), japCost, orderIdSafe(req.params.orderId)]
+        `UPDATE orders SET jap_order_id=$1, jap_cost=$2, status='In Progress' WHERE id=$3`,
+        [String(jap.order), japCost, req.params.orderId]
       );
-      notifyTelegram('CONFIRMED ' + req.params.orderId + ' -> JAP order #' + jap.order);
+      console.log('CONFIRMED: ' + req.params.orderId + ' -> JAP #' + jap.order);
+      notifyTelegram(
+        'CONFIRMED - Order sent to JAP!\n\n' +
+        'Order ID: ' + req.params.orderId + '\n' +
+        'JAP Order: #' + jap.order + '\n' +
+        'Service: ' + (order.service_name || '') + '\n' +
+        'Qty: ' + order.quantity + '\n' +
+        'Amount: $' + Number(order.amount || 0).toFixed(2) + '\n' +
+        'Status: In Progress'
+      );
       res.json({ success: true, message: 'Order sent to JAP!', japOrderId: jap.order });
     } else {
       await pool.query(`UPDATE orders SET status='Confirm Failed' WHERE id=$1`, [req.params.orderId]);
+      console.error('JAP ERROR for ' + req.params.orderId + ': ' + JSON.stringify(jap));
       res.status(500).json({ success: false, error: 'JAP error: ' + JSON.stringify(jap) });
     }
   } catch (err) {
+    console.error('CONFIRM ERROR: ' + err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
 function orderIdSafe(id) { return String(id); }
 
 /* ADMIN REJECT */
