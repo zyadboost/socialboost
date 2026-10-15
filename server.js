@@ -241,7 +241,7 @@ app.post('/api/claim-payment', async (req, res) => {
       [method, paymentRef, orderId]
     );
 
-    const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025@').trim();
+    const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@26/26@').trim();
     const host = req.protocol + '://' + req.get('host');
     const confirmUrl = host + '/api/admin/confirm/' + orderId + '?key=' + encodeURIComponent(adminKey);
 
@@ -267,7 +267,7 @@ app.post('/api/claim-payment', async (req, res) => {
 app.get('/api/admin/confirm/:orderId', async (req, res) => {
   try {
     const key = decodeURIComponent(req.query.key || '').trim();
-    const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025@').trim();
+    const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@26/26@').trim();
     if (key !== adminKey) {
       return res.status(403).json({ success: false, error: 'Wrong admin key', received: key });
     }
