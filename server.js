@@ -495,6 +495,17 @@ app.get('/api/reset-db', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+/* MIGRATION — zid columns naqsin (gha merra we7da) */
+app.get('/api/migrate', async (req, res) => {
+  try {
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP`);
+    res.json({ success: true, message: 'Migration OK — columns added!' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
 /* AUTO-CHECK every 5 min */
