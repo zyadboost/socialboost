@@ -44,6 +44,19 @@ async function initDB() {
       paid_at TIMESTAMP,
       completed_at TIMESTAMP
     )`);
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS coupons (
+      code VARCHAR(30) PRIMARY KEY,
+      discount_pct NUMERIC,
+      uses_left INTEGER,
+      active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`);
+  await pool.query(
+    `INSERT INTO coupons (code, discount_pct, uses_left, active)
+     VALUES ('WELCOME20', 20, 100, true)
+     ON CONFLICT (code) DO NOTHING`
+  );
   console.log('Database ready');
 }
 
@@ -174,7 +187,16 @@ app.post('/api/create-order', async (req, res) => {
     const svc = r.rows[0];
     if (!svc) return res.status(404).json({ success: false, error: 'Service not found' });
 
-    const amount = ((quantity / 1000) * parseFloat(svc.my_price)).toFixed(2);
+       let amount = ((quantity / 1000) * parseFloat(svc.my_price)).toFixed(2);
+    if (req.body.coupon) {
+      try {
+        const cc = await pool.query('SELECT * FROM coupons WHERE code=$1 AND active=true', [String(req.body.coupon).toUpperCase()]);
+        const coupon = cc.rows[0];
+        if (coupon && (coupon.uses_left === null || coupon.uses_left > 0)) {
+          amount = (parseFloat(amount) * (1 - parseFloat(coupon.discount_pct) / 100)).toFixed(2);
+        }
+      } catch(e) {}
+    }
     const orderId = 'ORD-' + Date.now();
 
     await pool.query(
@@ -309,7 +331,7 @@ function orderIdSafe(id) { return String(id); }
 /* ADMIN REJECT */
 app.get('/api/admin/reject/:orderId', async (req, res) => {
   const key = decodeURIComponent(req.query.key || '').trim();
-  const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
+  const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@226/26@').trim();
   if (key !== adminKey) return res.status(403).json({ success: false, error: 'Wrong key' });
   await pool.query(`UPDATE orders SET status='Rejected' WHERE id=$1`, [req.params.orderId]);
   res.json({ success: true, message: 'Order rejected' });
@@ -369,7 +391,7 @@ app.get('/api/claims', async (req, res) => {
 /* ADMIN */
 app.post('/api/admin/login', (req, res) => {
   const pass = String(req.body.password || '').trim();
-  const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@2025!').trim();
+  const adminKey = String(process.env.ADMIN_PASSWORD || 'Zyad@226/26@').trim();
   if (pass === adminKey) res.json({ success: true });
   else res.status(401).json({ success: false, error: 'Wrong password' });
 });
@@ -456,7 +478,22 @@ app.get('/api/best-sellers', async (req, res) => {
   );
   res.json(r.rows);
 });
+/* COUPON CHECK (aman) */
+app.get('/api/coupon/:code', async (req, res) => {
+  try {
+    const code = String(req.params.code || '').trim().toUpperCase();
+    const r = await pool.query('SELECT * FROM coupons WHERE code=$1 AND active=true', [code]);
+    const c = r.rows[0];
+    if (!c) return res.json({ success: false, error: 'Invalid code' });
+    if (c.uses_left !== null && c.uses_left <= 0) return res.json({ success: false, error: 'Code expired' });
+    res.json({ success: true, code: c.code, discount: parseFloat(c.discount_pct) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
+/* HEALTH */
+app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 /* AUTO-CHECK every 5 min */
 setInterval(async function() {
   try {
