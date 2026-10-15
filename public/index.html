@@ -859,7 +859,26 @@ async function checkStatus(){
   var p=document.getElementById('ppt-email');if(p)p.value=PAY.PAYPAL_EMAIL;
   var s=document.getElementById('skrill-email');if(s)s.value=PAY.SKRILL_EMAIL;
 })();
+async function adminConfirm(id){
+  if(!confirm('Confirm ' + id + ' → send to JAP?')) return;
+  try{
+    var r=await fetch('/api/admin/confirm/'+id+'?key='+encodeURIComponent(PAY.ADMIN_KEY));
+    var d=await r.json();
+    if(d.success){alert('✅ Sent to JAP! Order #'+(d.japOrderId||''));loadAdminOrders();}
+    else alert('❌ '+(d.error||'Error'));
+  }catch(e){alert('❌ '+e.message)}
+}
+async function adminReject(id){
+  if(!confirm('Reject '+id+'?')) return;
+  try{
+    var r=await fetch('/api/admin/reject/'+id+'?key='+encodeURIComponent(PAY.ADMIN_KEY));
+    var d=await r.json();
+    if(d.success){loadAdminOrders();}
+    else alert('❌ Error');
+  }catch(e){alert('❌ '+e.message)}
+}
 
+loadServices();
 loadServices();
   /* 👑 ADMIN LOGIN — FIXED */
 function adminLogin(){
