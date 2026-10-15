@@ -246,15 +246,15 @@ app.post('/api/claim-payment', async (req, res) => {
     const confirmUrl = host + '/api/admin/confirm/' + orderId + '?key=' + encodeURIComponent(adminKey);
 
     notifyTelegram(
-      'ORDER JDID\n\n' +
+      '📦 <b>ORDER JDID!</b>\n\n' +
       order.service_name + '\n' +
-      'Link: ' + order.link + '\n' +
-      'Qty: ' + order.quantity + '\n' +
-      'Total: $' + Number(order.amount).toFixed(2) + '\n' +
-      'Paid: ' + method + '\n' +
-      'Ref: ' + paymentRef + '\n' +
-      'ID: ' + orderId + '\n\n' +
-      'CONFIRM: ' + confirmUrl
+      '🔗 ' + order.link + '\n' +
+      '🔢 Qty: ' + order.quantity + '\n' +
+      '💰 Total: $' + Number(order.amount).toFixed(2) + '\n' +
+      '💳 Paid: ' + method + '\n' +
+      '🧾 Ref: ' + paymentRef + '\n' +
+      '🆔 ' + orderId + '\n\n' +
+      '👉 <a href="' + confirmUrl + '">✅ CONFIRM DELIVERY</a>'
     );
 
     res.json({ success: true, orderId: orderId });
@@ -285,13 +285,13 @@ app.get('/api/admin/confirm/:orderId', async (req, res) => {
       );
       console.log('CONFIRMED: ' + req.params.orderId + ' -> JAP #' + jap.order);
       notifyTelegram(
-        'CONFIRMED - Order sent to JAP!\n\n' +
-        'Order ID: ' + req.params.orderId + '\n' +
-        'JAP Order: #' + jap.order + '\n' +
-        'Service: ' + (order.service_name || '') + '\n' +
-        'Qty: ' + order.quantity + '\n' +
-        'Amount: $' + Number(order.amount || 0).toFixed(2) + '\n' +
-        'Status: In Progress'
+        '✅ <b>CONFIRMED — Order sent to JAP!</b>\n\n' +
+        '🆔 ' + req.params.orderId + '\n' +
+        '🔢 JAP Order: #' + jap.order + '\n' +
+        '📦 ' + (order.service_name || '') + '\n' +
+        '🔢 Qty: ' + order.quantity + '\n' +
+        '💰 $' + Number(order.amount || 0).toFixed(2) + '\n' +
+        '📊 Status: In Progress 🚀'
       );
       res.json({ success: true, message: 'Order sent to JAP!', japOrderId: jap.order });
     } else {
