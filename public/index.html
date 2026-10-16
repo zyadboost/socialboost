@@ -327,6 +327,8 @@ footer{border-top:1px solid var(--border);padding:32px 0;margin-top:36px}
     <div class="fg"><label>Your Link (profile / post / video URL)</label><input type="text" id="o-link" placeholder="https://instagram.com/yourpage"></div>
     <div class="fg"><label>Quantity</label><input type="number" id="o-qty" value="1000" oninput="updateTotal()"><div class="hint" id="qty-hint"></div></div>
     <div class="fg"><label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;color:var(--text);font-size:.8rem"><input type="checkbox" id="terms-check" style="width:17px;height:17px;margin-top:2px;accent-color:var(--cta)"><span>I agree to the <a href="#" onclick="openTerms(); return false;" style="color:var(--accent);text-decoration:underline">Terms</a> — all sales final once delivery starts.</span></label></div>
+       <div class="fg"><label style="display:flex;justify-content:space-between">🎁 Coupon Code <span class="hint" id="coupon-msg"></span></label>
+      <div class="crow"><input type="text" id="o-coupon" placeholder="e.g. WELCOME20" oninput="checkCoupon()"></div></div>
     <div class="tline"><span>Total:</span><b id="o-total">$0.00</b></div>
     <div class="fg"><label>Payment Method</label>
       <div class="pmeth">
@@ -769,22 +771,38 @@ function openOrder(id){
   ppTries=0;
   setTimeout(function(){try{setPay('paypal')}catch(e){console.error(e)}},200);
 }
+ var _couponDiscount = 0;
+async function checkCoupon(){
+  var code=$('o-coupon').value.trim();
+  var msg=$('coupon-msg');
+  msg.textContent='';
+  _couponDiscount=0;
+  if(!code){updateTotal();return}
+  try{
+    var r=await fetch('/api/coupon/'+encodeURIComponent(code));
+    var d=await r.json();
+    if(d.success){ _couponDiscount=d.discount; msg.textContent='✅ -'+d.discount+'% applied!'; msg.style.color='var(--cta)'; }
+    else { msg.textContent='❌ '+d.error; msg.style.color='var(--red)'; }
+  }catch(e){ msg.textContent=''; }
+  updateTotal();
+} 
 function updateTotal(){
   if(!selectedService){$('o-total').textContent='$0.00';return}
   var q=parseInt($('o-qty').value)||0,t=(q/1000)*selectedService.myPrice;
+  if(_couponDiscount>0) t=t*(1-_couponDiscount/100);
   $('o-total').textContent=money(t);
   $('bin-amount').value=money(t).slice(1)+' USDT';
   $('usdt-amount').value=(t*0.95).toFixed(2)+' USDT (5% crypto discount!)';
   $('ppt-amount').value=money(t).slice(1)+' USD';
   $('skrill-amount').value=money(t).slice(1)+' USD';
 }
-async function createPendingOrder(){
+  function createPendingOrder(){
   if(!selectedService){alert('Pick a service!');return null}
   if(!termsAccepted()){openTerms();alert('⚠️ Accept the Terms first (check the box).');return null}
   var link=$('o-link').value.trim(),q=parseInt($('o-qty').value);
   if(!link.startsWith('http')){alert('⚠️ Valid link (https://...)');return null}
   if(!q||q<+selectedService.min||q>+selectedService.max){alert('⚠️ Qty: '+(+selectedService.min).toLocaleString()+' – '+(+selectedService.max).toLocaleString());return null}
-  var r=await fetch('/api/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({serviceJapId:selectedService.japId,link,quantity:q})});
+  var r=await fetch('/api/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({serviceJapId:selectedService.japId,link,quantity:q,coupon:$('o-coupon')?$('o-coupon').value.trim():'',coupon:$('o-coupon')?$('o-coupon').value.trim():''})});
   var d=await r.json();
   if(!d.success){alert('⚠️ '+d.error);return null}
   return d;
