@@ -796,13 +796,14 @@ function updateTotal(){
   $('ppt-amount').value=money(t).slice(1)+' USD';
   $('skrill-amount').value=money(t).slice(1)+' USD';
 }
-  function createPendingOrder(){
+  async function createPendingOrder(){
   if(!selectedService){alert('Pick a service!');return null}
   if(!termsAccepted()){openTerms();alert('⚠️ Accept the Terms first (check the box).');return null}
   var link=$('o-link').value.trim(),q=parseInt($('o-qty').value);
   if(!link.startsWith('http')){alert('⚠️ Valid link (https://...)');return null}
   if(!q||q<+selectedService.min||q>+selectedService.max){alert('⚠️ Qty: '+(+selectedService.min).toLocaleString()+' – '+(+selectedService.max).toLocaleString());return null}
-  var r=await fetch('/api/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({serviceJapId:selectedService.japId,link,quantity:q,coupon:$('o-coupon')?$('o-coupon').value.trim():'',coupon:$('o-coupon')?$('o-coupon').value.trim():''})});
+  var couponCode = $('o-coupon') ? $('o-coupon').value.trim() : '';
+  var r=await fetch('/api/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({serviceJapId:selectedService.japId,link,quantity:q,coupon:couponCode})});
   var d=await r.json();
   if(!d.success){alert('⚠️ '+d.error);return null}
   return d;
