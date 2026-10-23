@@ -133,10 +133,17 @@ async function verifyPayPalCapture(captureId) {
 /* SERVICES */
 app.get('/api/import-services', async (req, res) => {
   try {
+    // 🔒 حماية: خاص المفتاح ديال الأدمن
+    if (process.env.ADMIN_PASSWORD && req.query.key !== process.env.ADMIN_PASSWORD) {
+      return res.status(401).json({ success: false, error: 'Unauthorized — zid ?key=ADMIN_PASSWORD' });
+    }
     const japServices = await importJAPServices();
     const margin = 2.2;
-    let count = 0;
+    let added = 0, skipped = 0;
+    const keptIds = [];
     for (const s of japServices) {
+      if (!isCleanService(s.name)) { skipped++; continue; }  // 🧹 بلا ضمان = كيتخطى
+      keptIds.push(String(s.service));
       await pool.query(
         `INSERT INTO services (jap_id, category, name, type, rate, min_qty, max_qty, my_price)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -148,14 +155,19 @@ app.get('/api/import-services', async (req, res) => {
          parseFloat(s.rate), parseInt(s.min), parseInt(s.max),
          (parseFloat(s.rate) * margin).toFixed(2)]
       );
-      count++;
+      added++;
     }
-    res.json({ success: true, count: count });
+    // 🗑️ مسح الخدمات القديمة لي بقاو فالقاعدة وما بقاش مقبولين
+    let removed = 0;
+    if (keptIds.length > 0) {
+      const del = await pool.query('DELETE FROM services WHERE NOT (jap_id = ANY($1))', [keptIds]);
+      removed = del.rowCount;
+    }
+    res.json({ success: true, added: added, skipped: skipped, removed: removed });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
 app.get('/api/services', async (req, res) => {
   try {
     const r = await pool.query('SELECT * FROM services ORDER BY jap_id');
@@ -423,7 +435,19 @@ app.get('/api/admin/jap-balance', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+/* ===== SERVICE QUALITY FILTER (خدمات نقية مضمونة فقط) ===== */
+const BAD_SERVICE_RE = /no\s*refil|without\s*refill|no\s*guarantee|no\s*warranty|non\s*refill/i;
+const GOOD_SERVICE_RE = /refill|guarantee|warranty|lifetime/i;
+const PREMIUM_SERVICE_RE = /\breal\b|premium|\bhq\b|high\s*quality|targeted/i;
 
+function isCleanService(name) {
+  const n = String(name || '');
+  if (BAD_SERVICE_RE.test(n)) return false;   // ⛔ No Refill / No Guarantee = مرفوضة
+  return GOOD_SERVICE_RE.test(n);             // ✅ خاصها ضمان باش تدخل
+}
+function isPremiumService(name) {
+  return PREMIUM_SERVICE_RE.test(String(name || ''));
+}
 /* PAYPAL ROUTES */
 app.post('/api/paypal/create-order', async (req, res) => {
   try {
