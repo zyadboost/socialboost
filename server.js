@@ -11,7 +11,10 @@ app.use(express.static('public'));
 /* DATABASE — PostgreSQL (Neon) */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
+  max: 3,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 15000
 });
 
 async function initDB() {
@@ -57,6 +60,7 @@ async function initDB() {
      VALUES ('WELCOME20', 20, 100, true)
      ON CONFLICT (code) DO NOTHING`
   );
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP`);
   console.log('Database ready');
 }
 
@@ -201,20 +205,27 @@ app.get('/api/import-services', async (req, res) => {
       const del = await pool.query('DELETE FROM services WHERE NOT (jap_id = ANY($1))', [keptIds]);
       removed = del.rowCount;
     }
+    svcCache.data = null; // clear cache
     res.json({ success: true, added: added, skipped: skipped, removed: removed });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+/* ⚡ CACHE 10 dqay9 — nqilliw queries l Neon bach ma nharqoouch quota */
+var svcCache = { data: null, at: 0 };
+var SVC_CACHE_TTL = 10 * 60 * 1000;
 app.get('/api/services', async (req, res) => {
+  if (svcCache.data && Date.now() - svcCache.at < SVC_CACHE_TTL) return res.json(svcCache.data);
   try {
     const r = await pool.query('SELECT * FROM services ORDER BY jap_id');
-    res.json(r.rows.map(function(s) {
+    svcCache.data = r.rows.map(function(s) {
       return {
         japId: s.jap_id, category: s.category, name: s.name, type: s.type,
         rate: parseFloat(s.rate), min: s.min_qty, max: s.max_qty, myPrice: parseFloat(s.my_price)
       };
-    }));
+    });
+    svcCache.at = Date.now();
+    res.json(svcCache.data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -222,10 +233,15 @@ app.get('/api/services', async (req, res) => {
 
 app.post('/api/update-price', async (req, res) => {
   if (!checkAdmin(req)) return res.status(403).json({ success: false, error: 'Unauthorized' });
-  const japId = req.body.japId;
-  const newPrice = parseFloat(req.body.newPrice);
-  await pool.query('UPDATE services SET my_price=$1 WHERE jap_id=$2', [newPrice, String(japId)]);
-  res.json({ success: true });
+  try {
+    const japId = req.body.japId;
+    const newPrice = parseFloat(req.body.newPrice);
+    await pool.query('UPDATE services SET my_price=$1 WHERE jap_id=$2', [newPrice, String(japId)]);
+    svcCache.data = null; // clear cache
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 /* ORDERS */
@@ -316,7 +332,7 @@ app.post('/api/claim-payment', async (req, res) => {
 
     const akey = adminKey();
     const host = req.protocol + '://' + req.get('host');
-    const confirmUrl = host + '/api/admin/confirm/' + orderId + '?key=' + encodeURIComponent(adminKey);
+    const confirmUrl = host + '/api/admin/confirm/' + orderId + '?key=' + encodeURIComponent(adminKey());
 
     notifyTelegram(
       '📦 <b>ORDER JDID!</b>\n\n' +
@@ -380,8 +396,33 @@ function orderIdSafe(id) { return String(id); }
 /* ADMIN REJECT */
 app.get('/api/admin/reject/:orderId', async (req, res) => {
   if (!checkAdmin(req)) return res.status(403).json({ success: false, error: 'Wrong key' });
-  await pool.query(`UPDATE orders SET status='Rejected' WHERE id=$1`, [req.params.orderId]);
-  res.json({ success: true, message: 'Order rejected' });
+  try {
+    await pool.query(`UPDATE orders SET status='Rejected' WHERE id=$1`, [req.params.orderId]);
+    res.json({ success: true, message: 'Order rejected' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/* ♻️ ADMIN REFILL — dhman JAP 30 days: kay3awd yseft followers li tah low */
+app.get('/api/admin/refill/:orderId', async (req, res) => {
+  if (!checkAdmin(req)) return res.status(403).json({ success: false, error: 'Wrong key' });
+  try {
+    const r = await pool.query('SELECT * FROM orders WHERE id=$1', [req.params.orderId]);
+    const order = r.rows[0];
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+    if (!order.jap_order_id) return res.status(400).json({ success: false, error: 'Had l-order mazal ma-tsifatch l JAP' });
+    const rr = await axios.post(JAP_URL, { key: JAP_KEY, action: 'refill', order: order.jap_order_id });
+    notifyTelegram('♻️ <b>REFILL REQUEST</b>\n\n' +
+      '🔔 ' + order.id + '\n' +
+      '🔢 JAP Order: #' + order.jap_order_id + '\n' +
+      '📦 ' + (order.service_name || '') + '\n' +
+      '🔗 ' + (order.link || '') + '\n' +
+      '📊 JAP response: ' + JSON.stringify(rr.data));
+    res.json({ success: true, jap: rr.data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 /* ORDERS LECTURE */
@@ -405,36 +446,44 @@ app.get('/api/orders', async (req, res) => {
 });
 
 app.get('/api/order-status/:orderId', async (req, res) => {
-  const r = await pool.query('SELECT * FROM orders WHERE id=$1', [req.params.orderId]);
-  const order = r.rows[0];
-  if (!order) return res.status(404).json({ error: 'Not found' });
-  if (order.jap_order_id) {
-    try {
-      const s = await checkJAPStatus(order.jap_order_id);
-      if (s.status) {
-        let newStatus = order.status;
-        if (s.status === 'Completed') newStatus = 'Completed';
-        if (s.status === 'Canceled') newStatus = 'Canceled';
-        if (s.status === 'Partial') newStatus = 'Partial';
-        if (newStatus !== order.status) {
-          await pool.query('UPDATE orders SET status=$1 WHERE id=$2', [newStatus, req.params.orderId]);
-          order.status = newStatus;
+  try {
+    const r = await pool.query('SELECT * FROM orders WHERE id=$1', [req.params.orderId]);
+    const order = r.rows[0];
+    if (!order) return res.status(404).json({ error: 'Not found' });
+    if (order.jap_order_id) {
+      try {
+        const s2 = await checkJAPStatus(order.jap_order_id);
+        if (s2.status) {
+          let newStatus = order.status;
+          if (s2.status === 'Completed') newStatus = 'Completed';
+          if (s2.status === 'Canceled') newStatus = 'Canceled';
+          if (s2.status === 'Partial') newStatus = 'Partial';
+          if (newStatus !== order.status) {
+            await pool.query('UPDATE orders SET status=$1 WHERE id=$2', [newStatus, req.params.orderId]);
+            order.status = newStatus;
+          }
+          order.japStatus = s2.status;
         }
-        order.japStatus = s.status;
-      }
-    } catch(e) {}
+      } catch(e) {}
+    }
+    res.json({
+      id: order.id, serviceName: order.service_name, link: order.link,
+      quantity: order.quantity, amount: parseFloat(order.amount),
+      method: order.method, status: order.status
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'DB error - try again' });
   }
-  res.json({
-    id: order.id, serviceName: order.service_name, link: order.link,
-    quantity: order.quantity, amount: parseFloat(order.amount),
-    method: order.method, status: order.status
-  });
 });
 
 app.get('/api/claims', async (req, res) => {
   if (!checkAdmin(req)) return res.status(403).json({ success: false, error: 'Unauthorized' });
-  const r = await pool.query(`SELECT * FROM orders WHERE status='Pending' ORDER BY created_at DESC`);
-  res.json(r.rows);
+  try {
+    const r = await pool.query(`SELECT * FROM orders WHERE status='Pending' ORDER BY created_at DESC`);
+    res.json(r.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ADMIN */
@@ -541,13 +590,21 @@ app.post('/api/paypal/capture', async (req, res) => {
 });
 
 /* BEST SELLERS */
+var bestCache = { data: null, at: 0 };
 app.get('/api/best-sellers', async (req, res) => {
-  const r = await pool.query(
-    `SELECT service_jap_id as jap_id, COUNT(*) as count
-     FROM orders WHERE service_jap_id IS NOT NULL
-     GROUP BY service_jap_id ORDER BY count DESC LIMIT 12`
-  );
-  res.json(r.rows);
+  if (bestCache.data && Date.now() - bestCache.at < SVC_CACHE_TTL) return res.json(bestCache.data);
+  try {
+    const r = await pool.query(
+      `SELECT service_jap_id as jap_id, COUNT(*) as count
+       FROM orders WHERE service_jap_id IS NOT NULL
+       GROUP BY service_jap_id ORDER BY count DESC LIMIT 12`
+    );
+    bestCache.data = r.rows;
+    bestCache.at = Date.now();
+    res.json(bestCache.data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 /* COUPON CHECK (aman) */
 app.get('/api/coupon/:code', async (req, res) => {
@@ -564,11 +621,11 @@ app.get('/api/coupon/:code', async (req, res) => {
 });
 
 /* HEALTH */
-app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
-/* AUTO-CHECK every 5 min */
+app.get('/api/health', (req, res) => res.json({ ok: true, db: dbReady, time: new Date().toISOString() }));
+/* AUTO-STATUS CHECK kola sa3a - Neon quota saving */
 setInterval(async function() {
   try {
-    const r = await pool.query(`SELECT * FROM orders WHERE jap_order_id IS NOT NULL AND status IN ('In Progress','Processing')`);
+    const r = await pool.query(`SELECT * FROM orders WHERE jap_order_id IS NOT NULL AND status IN ('In Progress','Processing') AND created_at > NOW() - INTERVAL '7 days'`);
     for (const order of r.rows) {
       try {
         const s = await checkJAPStatus(order.jap_order_id);
@@ -578,19 +635,31 @@ setInterval(async function() {
       } catch(e) {}
     }
   } catch(e) {}
-}, 5 * 60 * 1000);
+}, 60 * 60 * 1000);  // kola sa3a (quota saving)
 
-/* START */
+/* START — ila DB fail, server kaybqa khdam w kay3awd yjarreb (ma kaykhrjch) */
 const PORT = process.env.PORT || 3000;
-initDB().then(function() {
+var dbReady = false;
+function startServer() {
+  if (startServer.done) return;
+  startServer.done = true;
   app.listen(PORT, function() {
     console.log('=========================================');
-    console.log('  SocialBoost Backend - RUNNING');
-    console.log('  Database: PostgreSQL (Neon) - DAIMA');
-    console.log('  Port: ' + PORT);
+    console.log('  SocialBoost Backend - RUNNING (port ' + PORT + ')');
+    console.log('  DB ready: ' + dbReady);
     console.log('=========================================');
   });
-}).catch(function(err) {
-  console.error('DB init FAILED: ' + err.message);
-  process.exit(1);
-});
+}
+function tryInitDB(attempt) {
+  initDB().then(function() {
+    dbReady = true;
+    console.log('Database ready - attempt ' + attempt);
+    startServer();
+  }).catch(function(err) {
+    console.error('DB init FAILED (attempt ' + attempt + '): ' + err.message);
+    startServer(); // site ybqa mftou7 7ta ila DB ma khdamach
+    console.log('Retry DB init f 5 dqay9...');
+    setTimeout(function() { tryInitDB(attempt + 1); }, 5 * 60 * 1000);
+  });
+}
+tryInitDB(1);
