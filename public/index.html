@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SocialBoost — Cheapest SMM Panel | 3400+ Services</title>
-<meta name="description" content="SocialBoost — 3400+ SMM services for Instagram, TikTok, YouTube, Telegram & more. Cheapest prices, fast delivery, no password required. PayPal, Skrill & Crypto.">
+<title>SocialBoost — Cheapest SMM Panel | 2000+ Services</title>
+<meta name="description" content="SocialBoost — 2000+ SMM services for Instagram, TikTok, YouTube, Telegram & more. Cheapest prices, fast delivery, no password required. PayPal, Skrill & Crypto.">
 <meta name="keywords" content="SMM panel, buy instagram followers, cheapest smm panel, buy tiktok views, youtube subscribers, social media marketing">
 <meta property="og:title" content="SocialBoost — Cheapest SMM Panel">
-<meta property="og:description" content="3400+ services, fast delivery, no password. PayPal, Skrill & Crypto.">
+<meta property="og:description" content="2000+ services, fast delivery, no password. PayPal, Skrill & Crypto.">
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236C5CE7'/%3E%3Cpath d='M36 8 L18 36 h10 L26 56 L46 26 h-11 z' fill='%23ffffff'/%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -805,16 +805,20 @@ function updateTotal(){
   $('ppt-amount').value=money(t).slice(1)+' USD';
   $('skrill-amount').value=money(t).slice(1)+' USD';
 }
-  async function createPendingOrder(){
+  var lastPending=null;
+async function createPendingOrder(){
   if(!selectedService){alert('Pick a service!');return null}
   if(!termsAccepted()){openTerms();alert('⚠️ Accept the Terms first (check the box).');return null}
   var link=$('o-link').value.trim(),q=parseInt($('o-qty').value);
   if(!link.startsWith('http')){alert('⚠️ Valid link (https://...)');return null}
   if(!q||q<+selectedService.min||q>+selectedService.max){alert('⚠️ Qty: '+(+selectedService.min).toLocaleString()+' – '+(+selectedService.max).toLocaleString());return null}
+  var reuseKey=selectedService.japId+'|'+link+'|'+q+'|'+($('o-coupon') ? $('o-coupon').value.trim() : '');
+  if(lastPending && lastPending.key===reuseKey && Date.now()-lastPending.at<600000){return lastPending.po}
   var couponCode = $('o-coupon') ? $('o-coupon').value.trim() : '';
   var r=await fetch('/api/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({serviceJapId:selectedService.japId,link,quantity:q,coupon:couponCode})});
   var d=await r.json();
   if(!d.success){alert('⚠️ '+d.error);return null}
+  lastPending={key:reuseKey,at:Date.now(),po:d};
   return d;
 }
 function setPay(m){
@@ -860,13 +864,17 @@ function tryPP(){
     .catch(function(e){clearTimeout(ppRenderTO);ppS('❌ '+e.message,true)})
 }
 function copyVal(id){var v=$(id).value;if(navigator.clipboard)navigator.clipboard.writeText(v).then(function(){alert('✅ Copied!')})}
+var claimBusy=false;
 async function manualClaim(m,refId){
+  if(claimBusy){alert('⏳ Processing your order — please wait 2 seconds!');return}
   var ref=$(refId).value.trim();if(!ref){alert('⚠️ Enter YOUR payment reference!');return}
+  claimBusy=true;try{
   var po=await createPendingOrder();if(!po)return;
   var r=await fetch('/api/claim-payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:po.orderId,method:m,paymentRef:ref})});
   var d=await r.json();
   if(d.success){showSuccess(po.orderId,'Payment claim received! We verify (5-30 min).');$(refId).value=''}
   else alert('⚠️ '+d.error)
+  }finally{claimBusy=false}
 }
 function showSuccess(id,m){$('success-order').textContent=id;$('success-msg').textContent=m;$('success-modal').style.display='flex'}
 async function checkStatus(){
