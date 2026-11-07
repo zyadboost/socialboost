@@ -254,6 +254,21 @@ app.post('/api/create-order', async (req, res) => {
     const svc = r.rows[0];
     if (!svc) return res.status(404).json({ success: false, error: 'Service not found' });
 
+    // 🛡️ ANTI-DOUBLE ORDER: nfs service+link+qty f akher 10 dqay9 w mazal makhlas -> rje3 nafs l'order (mach jdid)
+    try {
+      const dup = await pool.query(
+        `SELECT id, amount FROM orders
+          WHERE service_jap_id=$1 AND link=$2 AND quantity=$3
+            AND method='pending' AND created_at > NOW() - INTERVAL '10 minutes'
+          ORDER BY created_at DESC LIMIT 1`,
+        [serviceJapId, link, quantity]
+      );
+      if (dup.rows[0]) {
+        console.log('DEDUP: reuse ' + dup.rows[0].id + ' (blocked duplicate order)');
+        return res.json({ success: true, orderId: dup.rows[0].id, amount: parseFloat(dup.rows[0].amount), dedup: true });
+      }
+    } catch (dedupErr) { console.error('DEDUP check skipped: ' + dedupErr.message); }
+
        let amount = ((quantity / 1000) * parseFloat(svc.my_price)).toFixed(2);
     if (req.body.coupon) {
       try {
@@ -286,6 +301,8 @@ app.post('/api/pay-order', async (req, res) => {
     const r = await pool.query('SELECT * FROM orders WHERE id=$1', [orderId]);
     const order = r.rows[0];
     if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+    // 🛡️ ANTI-DOUBLE: ila l'order tsift la JAP 9bel, mat3awdch (PayPal kay3awd onApprove sautan)
+    if (order.jap_order_id) return res.json({ success: true, message: 'Already paid & sent to JAP', order: { id: orderId, status: order.status, japOrderId: order.jap_order_id } });
 
     let paid = false;
     if (method === 'paypal') {
@@ -413,12 +430,12 @@ app.get('/api/admin/refill/:orderId', async (req, res) => {
     if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
     if (!order.jap_order_id) return res.status(400).json({ success: false, error: 'Had l-order mazal ma-tsifatch l JAP' });
     const rr = await axios.post(JAP_URL, { key: JAP_KEY, action: 'refill', order: order.jap_order_id });
-    notifyTelegram('♻️ <b>REFILL REQUEST</b>\n\n' +
-      '🔔 ' + order.id + '\n' +
-      '🔢 JAP Order: #' + order.jap_order_id + '\n' +
-      '📦 ' + (order.service_name || '') + '\n' +
-      '🔗 ' + (order.link || '') + '\n' +
-      '📊 JAP response: ' + JSON.stringify(rr.data));
+    notifyTelegram('\u267b\ufe0f <b>REFILL REQUEST</b>\n\n' +
+      '\ud83c\udd94 ' + order.id + '\n' +
+      '\ud83d\udd22 JAP Order: #' + order.jap_order_id + '\n' +
+      '\ud83d\udce6 ' + (order.service_name || '') + '\n' +
+      '\ud83d\udd17 ' + (order.link || '') + '\n' +
+      '\ud83d\udcca JAP response: ' + JSON.stringify(rr.data));
     res.json({ success: true, jap: rr.data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -532,7 +549,7 @@ app.get('/api/admin/jap-balance', async (req, res) => {
   }
 });
 /* ===== SERVICE QUALITY FILTER (خدمات نقية مضمونة فقط) ===== */
-const BAD_SERVICE_RE = /no\s*refil|without\s*refill|no\s*guarantee|no\s*warranty|non\s*refill/i;
+const BAD_SERVICE_RE = /no\s*refil|without\s*refill|non\s*refill|no\s*guarantee|no\s*warranty|refill\s*:\s*(?:none|0|no\b(?!\s*-?\s*drop))|guarantee\s*:\s*(?:none|0|no\b(?!\s*-?\s*drop))|warranty\s*:\s*(?:none|0|no\b(?!\s*-?\s*drop))|huge\s*drop|drop\s*:\s*yes/i;
 const GOOD_SERVICE_RE = /refill|guarantee|warranty|lifetime/i;
 const PREMIUM_SERVICE_RE = /\breal\b|premium|\bhq\b|high\s*quality|targeted/i;
 
