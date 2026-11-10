@@ -337,6 +337,7 @@ footer{border-top:1px solid var(--border);padding:32px 0;margin-top:36px}
         <button class="pbtn" id="pm-usdt" onclick="setPay('usdt')">₿ USDT</button>
         <button class="pbtn" id="pm-ppt" onclick="setPay('ppt')">📧 PayPal Transfer</button>
         <button class="pbtn" id="pm-skrill" onclick="setPay('skrill')">💳 Skrill</button>
+        <button class="pbtn" id="pm-card" onclick="setPay('card')" style="display:none">💳 Carte bancaire 🇲🇦</button>
       </div>
     </div>
     <div id="paypal-zone" class="pzone"><div id="pp-status" class="smsg hint"></div><div id="paypal-buttons"></div></div>
@@ -363,6 +364,15 @@ footer{border-top:1px solid var(--border);padding:32px 0;margin-top:36px}
       <div class="fg"><label>Our Skrill email:</label><div class="crow"><input type="text" id="skrill-email" readonly><button class="btn btn-sm" onclick="copyVal('skrill-email')">📋</button></div><div class="hint" style="color:#f5c518">⚠️ "Goods and Services" + Order ID in note.</div></div>
       <div class="fg"><label>Your Skrill email (verification):</label><input type="text" id="skrill-ref" placeholder="your@email.com"></div>
       <button class="btn btn-cta btn-full" onclick="manualClaim('skrill','skrill-ref')">✅ I have sent</button>
+    </div>
+    <div id="card-zone" class="pzone" style="display:none">
+      <div class="fg"><label>💳 Card payment — secure via YouCan Pay:</label>
+        <div class="hint">Total: <b id="card-mad">— MAD</b> • Moroccan & international cards (Visa / Mastercard / CMI) • Min 10 MAD</div>
+      </div>
+      <div id="ycp-payment"></div>
+      <button class="btn btn-cta btn-full" id="ycp-prepare" onclick="cardPayNow()">💳 ادفع بالبطاقة</button>
+      <button class="btn btn-cta btn-full" id="ycp-pay" onclick="ycpConfirm()" style="display:none">✅ أكد الدفع</button>
+      <div class="hint" id="ycp-status"></div>
     </div>
   </div>
 </div>
@@ -823,12 +833,13 @@ async function createPendingOrder(){
 }
 function setPay(m){
   payMethod=m;
-  ['paypal','bin','usdt','ppt','skrill'].forEach(function(x){
+  ['paypal','bin','usdt','ppt','skrill','card'].forEach(function(x){
     $('pm-'+x).classList.toggle('on',m===x);
     var z=$(''+x+'-zone');if(z)z.style.display=m===x?'block':'none';
   });
   if(m==='paypal'){try{tryPP()}catch(e){console.error(e)}}
   if(m!=='paypal')updateTotal();
+  if(m==='card'){startCardZone()}
 }
 function ppS(m,e){var el=$('pp-status');el.textContent=m;el.style.color=e?'var(--red)':'var(--muted)'}
 function tryPP(){
@@ -865,6 +876,71 @@ function tryPP(){
 }
 function copyVal(id){var v=$(id).value;if(navigator.clipboard)navigator.clipboard.writeText(v).then(function(){alert('✅ Copied!')})}
 var claimBusy=false;
+/* 💳 YOUCAN PAY — CARTE BANCAIRE 🇲🇦 */
+var ycpCfg=null,ycpFlow=null,ycpOrderId=null,ycpLib=false;
+(function(){
+  fetch('/api/ycp/config').then(function(r){return r.json()}).then(function(c){
+    ycpCfg=c;
+    var b=$('pm-card');if(c&&c.enabled&&b)b.style.display='';
+  }).catch(function(){})
+})();
+function ycpS(m,e){var el=$('ycp-status');if(el){el.textContent=m;el.style.color=e?'var(--red)':'var(--muted)'}}
+function ycpLoad(cb){
+  if(ycpLib){cb();return}
+  var s=document.createElement('script');s.src='https://youcanpay.com/yp.js';
+  s.onload=function(){ycpLib=true;cb()};
+  s.onerror=function(){ycpS('❌ Could not load YouCan Pay. Try another method.',true)};
+  document.head.appendChild(s);
+}
+function startCardZone(){
+  if(!ycpCfg||!ycpCfg.enabled){ycpS('❌ Card payments are being configured. Please use another method.',true);return}
+  ycpLoad(function(){ ycpS(''); $('ycp-prepare').style.display=''; $('ycp-pay').style.display='none'; });
+}
+async function cardPayNow(){
+  if(!ycpCfg||!ycpCfg.enabled){ycpS('❌ Card payments disabled',true);return}
+  var po=await createPendingOrder();if(!po)return;
+  ycpOrderId=po.orderId;
+  ycpS('⏳ Preparing secure card payment…');
+  try{
+    var r=await fetch('/api/ycp/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:ycpOrderId})});
+    var d=await r.json();
+    if(!d.success){ycpS('⚠️ '+d.error,true);return}
+    $('card-mad').textContent=d.amountMad.toFixed(2)+' MAD';
+    var p=yp(ycpCfg.pub,{locale:'ar'}).elements({token:d.token,container:'#ycp-payment'});
+    p.mount();
+    ycpFlow=p;
+    $('ycp-prepare').style.display='none';
+    $('ycp-pay').style.display='';
+    ycpS('👇 دخل معلومات البطاقة ثم ضغط أكد الدفع');
+  }catch(e){ycpS('⚠️ '+e.message,true)}
+}
+function ycpConfirm(){
+  if(!ycpFlow){ycpS('⚠️ Fill the card form first',true);return}
+  ycpS('⏳ Processing payment…');
+  ycpFlow.confirm().then(async function(result){
+    if(result.status==='succeeded'){
+      ycpS('⏳ Verifying payment…');
+      var r=await fetch('/api/ycp/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:ycpOrderId})});
+      var d=await r.json();
+      if(d.success){showSuccess(ycpOrderId,'✅ Card payment OK! Delivery started 🚀');ycpS('')}
+      else{ycpS('⚠️ '+d.error+' — we verify automatically & deliver.',true)}
+    }else{
+      ycpS('❌ '+((result.error&&result.error.message)||'Payment failed'),true);
+    }
+  }).catch(function(e){ycpS('❌ '+((e&&e.message)||'Payment error'),true)});
+}
+(function(){
+  try{
+    var q=new URLSearchParams(location.search);
+    if(q.get('card')==='success'&&q.get('order')){
+      var oid=q.get('order');
+      fetch('/api/ycp/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:oid})})
+        .then(function(r){return r.json()})
+        .then(function(d){ if(d.success){showSuccess(oid,'✅ Card payment confirmed! Delivery in progress 🚀')} });
+      history.replaceState({},'','/');
+    }
+  }catch(e){}
+})();
 async function manualClaim(m,refId){
   if(claimBusy){alert('⏳ Processing your order — please wait 2 seconds!');return}
   var ref=$(refId).value.trim();if(!ref){alert('⚠️ Enter YOUR payment reference!');return}
