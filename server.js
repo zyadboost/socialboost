@@ -637,6 +637,115 @@ app.get('/api/coupon/:code', async (req, res) => {
   }
 });
 
+/* ===== 💳 YOUCAN PAY — CARTE BANCAIRE (MAD) ===== */
+const YCP_PRI = String(process.env.YCP_PRIVATE_KEY || '').trim();
+const YCP_PUB = String(process.env.YCP_PUBLIC_KEY || '').trim();
+const YCP_RATE = parseFloat(process.env.USD_TO_MAD || '10') || 10;
+const YCP_BASE = YCP_PRI.indexOf('sandbox') !== -1 ? 'https://youcanpay.com/sandbox' : 'https://youcanpay.com';
+
+app.get('/api/ycp/config', (req, res) => {
+  res.json({ enabled: Boolean(YCP_PRI && YCP_PUB), rate: YCP_RATE, pub: YCP_PUB });
+});
+
+function ycpMadCents(usd) { return Math.round(parseFloat(usd) * YCP_RATE * 100); }
+
+app.post('/api/ycp/create', async (req, res) => {
+  try {
+    if (!YCP_PRI || !YCP_PUB) return res.status(400).json({ success: false, error: 'Card payments disabled' });
+    const orderId = String(req.body.orderId || '');
+    const r = await pool.query('SELECT * FROM orders WHERE id=$1', [orderId]);
+    const order = r.rows[0];
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+    if (order.jap_order_id || order.paid_at) return res.status(400).json({ success: false, error: 'Order already paid' });
+    const madCents = ycpMadCents(order.amount);
+    if (madCents < 1000) return res.status(400).json({ success: false, error: 'Minimum for card payment: 10 MAD (~$1). Please increase quantity.' });
+    const form = new URLSearchParams();
+    form.append('pri_key', YCP_PRI);
+    form.append('order_id', orderId);
+    form.append('amount', String(madCents));
+    form.append('currency', 'MAD');
+    form.append('success_url', 'https://socialboost-store.com/?card=success&order=' + encodeURIComponent(orderId));
+    form.append('error_url', 'https://socialboost-store.com/?card=error&order=' + encodeURIComponent(orderId));
+    form.append('metadata[orderId]', orderId);
+    form.append('metadata[amountUsd]', String(order.amount));
+    const yr = await axios.post(YCP_BASE + '/api/tokenize', form.toString(),
+      { headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 25000 });
+    const tok = yr.data && yr.data.token;
+    if (!tok) return res.status(502).json({ success: false, error: 'YouCanPay error: ' + JSON.stringify(yr.data).slice(0, 200) });
+    await pool.query(`UPDATE orders SET pay_ref=$1 WHERE id=$2`, [String(tok), orderId]);
+    res.json({ success: true, token: String(tok), amountMad: madCents / 100 });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+async function ycpVerifyPaid(orderId) {
+  const q = 'limit=5&filters[0][field]=order_id&filters[0][operator]=%3D&filters[0][value]=' + encodeURIComponent(orderId);
+  const r = await axios.get(YCP_BASE + '/api/v2/transactions?' + q, {
+    auth: { username: YCP_PRI, password: '' },
+    headers: { 'Accept': 'application/json' },
+    timeout: 25000
+  });
+  const list = (r.data && r.data.data) || [];
+  return list.find(function (t) { return t && t.status === 'paid'; }) || null;
+}
+
+async function ycpFulfill(orderId, tx) {
+  const r = await pool.query('SELECT * FROM orders WHERE id=$1', [orderId]);
+  const order = r.rows[0];
+  if (!order) return { success: false, error: 'Order not found' };
+  if (order.jap_order_id) return { success: true, already: true, japOrderId: order.jap_order_id };
+  if (tx && tx.amount && tx.amount.amount) {
+    const paidC = Math.round(parseFloat(tx.amount.amount) * 100);
+    if (Math.abs(paidC - ycpMadCents(order.amount)) > 100) {
+      console.error('YCP amount mismatch for ' + orderId + ' paid=' + paidC + ' expected=' + ycpMadCents(order.amount));
+      return { success: false, error: 'Payment amount mismatch' };
+    }
+  }
+  const jap = await createJAPOrder(order.service_jap_id, order.link, order.quantity);
+  if (jap && jap.order) {
+    const japCost = ((order.quantity / 1000) * parseFloat(order.jap_rate || 0)).toFixed(2);
+    await pool.query(`UPDATE orders SET method='card-youcanpay', pay_ref=$1, paid_at=NOW(), jap_order_id=$2, jap_cost=$3, status='In Progress' WHERE id=$4`,
+      [String(tx && tx.id ? tx.id : (order.pay_ref || 'card')), String(jap.order), japCost, orderId]);
+    notifyTelegram(
+      '💳 <b>CARTE BANCAIRE — Order paid!</b>\n\n' +
+      '📦 ' + (order.service_name || '') + '\n' +
+      '🔗 ' + order.link + '\n' +
+      '🔢 Qty: ' + order.quantity + '\n' +
+      '💰 $' + Number(order.amount).toFixed(2) + ' (~' + (ycpMadCents(order.amount) / 100).toFixed(2) + ' MAD)\n' +
+      '🆔 ' + orderId + '\n' +
+      '🚀 Sent to JAP: #' + jap.order
+    );
+    return { success: true, japOrderId: String(jap.order) };
+  }
+  await pool.query(`UPDATE orders SET method='card-youcanpay', pay_ref=$1, paid_at=NOW(), status='Pending Manual' WHERE id=$2`,
+    [String(tx && tx.id ? tx.id : 'card'), orderId]);
+  notifyTelegram('⚠️ Card paid but JAP order failed for ' + orderId + ': ' + JSON.stringify(jap).slice(0, 200));
+  return { success: false, error: 'Payment received, delivery will be handled manually' };
+}
+
+app.post('/api/ycp/complete', async (req, res) => {
+  try {
+    const orderId = String(req.body.orderId || '');
+    if (!orderId) return res.status(400).json({ success: false, error: 'Missing orderId' });
+    const tx = await ycpVerifyPaid(orderId);
+    if (!tx) return res.status(402).json({ success: false, error: 'Payment not confirmed yet' });
+    const out = await ycpFulfill(orderId, tx);
+    res.json(out);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/ycp/webhook', async (req, res) => {
+  try {
+    const tx = (req.body && (req.body.data || req.body)) || {};
+    const orderId = tx.order_id || (tx.metadata && tx.metadata.orderId);
+    if (tx.status === 'paid' && orderId) { await ycpFulfill(String(orderId), tx); }
+  } catch (err) { console.error('YCP webhook error: ' + err.message); }
+  res.json({ received: true });
+});
+
 /* HEALTH */
 app.get('/api/health', (req, res) => res.json({ ok: true, db: dbReady, time: new Date().toISOString() }));
 /* AUTO-STATUS CHECK kola sa3a - Neon quota saving */
