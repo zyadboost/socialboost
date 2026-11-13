@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SocialBoost — Cheapest SMM Panel | 3400+ Services</title>
-<meta name="description" content="SocialBoost — 3400+ SMM services for Instagram, TikTok, YouTube, Telegram & more. Cheapest prices, fast delivery, no password required. PayPal, Skrill & Crypto.">
+<title>SocialBoost — Cheapest SMM Panel | 2000+ Services</title>
+<meta name="description" content="SocialBoost — 2000+ SMM services for Instagram, TikTok, YouTube, Telegram & more. Cheapest prices, fast delivery, no password required. PayPal, Skrill & Crypto.">
 <meta name="keywords" content="SMM panel, buy instagram followers, cheapest smm panel, buy tiktok views, youtube subscribers, social media marketing">
 <meta property="og:title" content="SocialBoost — Cheapest SMM Panel">
-<meta property="og:description" content="3400+ services, fast delivery, no password. PayPal, Skrill & Crypto.">
+<meta property="og:description" content="2000+ services, fast delivery, no password. PayPal, Skrill & Crypto.">
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236C5CE7'/%3E%3Cpath d='M36 8 L18 36 h10 L26 56 L46 26 h-11 z' fill='%23ffffff'/%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -332,14 +332,14 @@ footer{border-top:1px solid var(--border);padding:32px 0;margin-top:36px}
     <div class="tline"><span>Total:</span><b id="o-total">$0.00</b></div>
     <div class="fg"><label>Payment Method</label>
       <div class="pmeth">
-        <button class="pbtn on" id="pm-paypal" onclick="setPay('paypal')">🅿️ PayPal / Card</button>
-        <button class="pbtn" id="pm-bin" onclick="setPay('bin')">🅿️ Binance Pay</button>
+        <button class="pbtn on" id="pm-bin" onclick="setPay('bin')">🅿️ Binance Pay</button>
         <button class="pbtn" id="pm-usdt" onclick="setPay('usdt')">₿ USDT</button>
         <button class="pbtn" id="pm-ppt" onclick="setPay('ppt')">📧 PayPal Transfer</button>
         <button class="pbtn" id="pm-skrill" onclick="setPay('skrill')">💳 Skrill</button>
+        <button class="pbtn" id="pm-card" onclick="setPay('card')" style="display:none">💳 Carte bancaire 🇲🇦</button>
       </div>
     </div>
-    <div id="paypal-zone" class="pzone"><div id="pp-status" class="smsg hint"></div><div id="paypal-buttons"></div></div>
+    <div id="paypal-zone" class="pzone" style="display:none"><div id="pp-status" class="smsg hint"></div><div id="paypal-buttons"></div></div>
     <div id="bin-zone" class="pzone" style="display:none">
       <div class="fg"><label>Send exactly:</label><input type="text" id="bin-amount" readonly></div>
       <div class="fg"><label>Our Binance Pay ID:</label><div class="crow"><input type="text" id="bin-id" readonly><button class="btn btn-sm" onclick="copyVal('bin-id')">📋</button></div><div class="hint">Binance app → Pay → Send → our Pay ID → amount → confirm</div></div>
@@ -363,6 +363,15 @@ footer{border-top:1px solid var(--border);padding:32px 0;margin-top:36px}
       <div class="fg"><label>Our Skrill email:</label><div class="crow"><input type="text" id="skrill-email" readonly><button class="btn btn-sm" onclick="copyVal('skrill-email')">📋</button></div><div class="hint" style="color:#f5c518">⚠️ "Goods and Services" + Order ID in note.</div></div>
       <div class="fg"><label>Your Skrill email (verification):</label><input type="text" id="skrill-ref" placeholder="your@email.com"></div>
       <button class="btn btn-cta btn-full" onclick="manualClaim('skrill','skrill-ref')">✅ I have sent</button>
+    </div>
+    <div id="card-zone" class="pzone" style="display:none">
+      <div class="fg"><label>💳 Card payment — secure via YouCan Pay:</label>
+        <div class="hint">Total: <b id="card-mad">— MAD</b> • Moroccan & international cards (Visa / Mastercard / CMI) • Min 10 MAD</div>
+      </div>
+      <div id="ycp-payment"></div>
+      <button class="btn btn-cta btn-full" id="ycp-prepare" onclick="cardPayNow()">💳 ادفع بالبطاقة</button>
+      <button class="btn btn-cta btn-full" id="ycp-pay" onclick="ycpConfirm()" style="display:none">✅ أكد الدفع</button>
+      <div class="hint" id="ycp-status"></div>
     </div>
   </div>
 </div>
@@ -778,7 +787,7 @@ function openOrder(id){
   updateTotal();
   $('order-modal').style.display='flex';
   ppTries=0;
-  setTimeout(function(){try{setPay('paypal')}catch(e){console.error(e)}},200);
+  setTimeout(function(){try{setPay('bin')}catch(e){console.error(e)}},200);
 }
  var _couponDiscount = 0;
 async function checkCoupon(){
@@ -805,26 +814,31 @@ function updateTotal(){
   $('ppt-amount').value=money(t).slice(1)+' USD';
   $('skrill-amount').value=money(t).slice(1)+' USD';
 }
-  async function createPendingOrder(){
+  var lastPending=null;
+async function createPendingOrder(){
   if(!selectedService){alert('Pick a service!');return null}
   if(!termsAccepted()){openTerms();alert('⚠️ Accept the Terms first (check the box).');return null}
   var link=$('o-link').value.trim(),q=parseInt($('o-qty').value);
-  if(!link.startsWith('http')){alert('⚠️ Valid link (https://...)');return null}
+  if(!link.startsWith('http')){alert('⚠️ Link not valid — paste the FULL link starting with https://');return null}
   if(!q||q<+selectedService.min||q>+selectedService.max){alert('⚠️ Qty: '+(+selectedService.min).toLocaleString()+' – '+(+selectedService.max).toLocaleString());return null}
+  var reuseKey=selectedService.japId+'|'+link+'|'+q+'|'+($('o-coupon') ? $('o-coupon').value.trim() : '');
+  if(lastPending && lastPending.key===reuseKey && Date.now()-lastPending.at<600000){return lastPending.po}
   var couponCode = $('o-coupon') ? $('o-coupon').value.trim() : '';
   var r=await fetch('/api/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({serviceJapId:selectedService.japId,link,quantity:q,coupon:couponCode})});
   var d=await r.json();
   if(!d.success){alert('⚠️ '+d.error);return null}
+  lastPending={key:reuseKey,at:Date.now(),po:d};
   return d;
 }
 function setPay(m){
   payMethod=m;
-  ['paypal','bin','usdt','ppt','skrill'].forEach(function(x){
+  ['bin','usdt','ppt','skrill','card'].forEach(function(x){
     $('pm-'+x).classList.toggle('on',m===x);
     var z=$(''+x+'-zone');if(z)z.style.display=m===x?'block':'none';
   });
   if(m==='paypal'){try{tryPP()}catch(e){console.error(e)}}
   if(m!=='paypal')updateTotal();
+  if(m==='card'){startCardZone()}
 }
 function ppS(m,e){var el=$('pp-status');el.textContent=m;el.style.color=e?'var(--red)':'var(--muted)'}
 function tryPP(){
@@ -860,13 +874,82 @@ function tryPP(){
     .catch(function(e){clearTimeout(ppRenderTO);ppS('❌ '+e.message,true)})
 }
 function copyVal(id){var v=$(id).value;if(navigator.clipboard)navigator.clipboard.writeText(v).then(function(){alert('✅ Copied!')})}
+var claimBusy=false;
+/* 💳 YOUCAN PAY — CARTE BANCAIRE 🇲🇦 */
+var ycpCfg=null,ycpFlow=null,ycpOrderId=null,ycpLib=false;
+(function(){
+  fetch('/api/ycp/config').then(function(r){return r.json()}).then(function(c){
+    ycpCfg=c;
+    var b=$('pm-card');if(c&&c.enabled&&b)b.style.display='';
+  }).catch(function(){})
+})();
+function ycpS(m,e){var el=$('ycp-status');if(el){el.textContent=m;el.style.color=e?'var(--red)':'var(--muted)'}}
+function ycpLoad(cb){
+  if(ycpLib){cb();return}
+  var s=document.createElement('script');s.src='https://youcanpay.com/yp.js';
+  s.onload=function(){ycpLib=true;cb()};
+  s.onerror=function(){ycpS('❌ Could not load YouCan Pay. Try another method.',true)};
+  document.head.appendChild(s);
+}
+function startCardZone(){
+  if(!ycpCfg||!ycpCfg.enabled){ycpS('❌ Card payments are being configured. Please use another method.',true);return}
+  ycpLoad(function(){ ycpS(''); $('ycp-prepare').style.display=''; $('ycp-pay').style.display='none'; });
+}
+async function cardPayNow(){
+  if(!ycpCfg||!ycpCfg.enabled){ycpS('❌ Card payments disabled',true);return}
+  var po=await createPendingOrder();if(!po)return;
+  ycpOrderId=po.orderId;
+  ycpS('⏳ Preparing secure card payment…');
+  try{
+    var r=await fetch('/api/ycp/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:ycpOrderId})});
+    var d=await r.json();
+    if(!d.success){ycpS('⚠️ '+d.error,true);return}
+    $('card-mad').textContent=d.amountMad.toFixed(2)+' MAD';
+    var p=yp(ycpCfg.pub,{locale:'ar'}).elements({token:d.token,container:'#ycp-payment'});
+    p.mount();
+    ycpFlow=p;
+    $('ycp-prepare').style.display='none';
+    $('ycp-pay').style.display='';
+    ycpS('👇 دخل معلومات البطاقة ثم ضغط أكد الدفع');
+  }catch(e){ycpS('⚠️ '+e.message,true)}
+}
+function ycpConfirm(){
+  if(!ycpFlow){ycpS('⚠️ Fill the card form first',true);return}
+  ycpS('⏳ Processing payment…');
+  ycpFlow.confirm().then(async function(result){
+    if(result.status==='succeeded'){
+      ycpS('⏳ Verifying payment…');
+      var r=await fetch('/api/ycp/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:ycpOrderId})});
+      var d=await r.json();
+      if(d.success){showSuccess(ycpOrderId,'✅ Card payment OK! Delivery started 🚀');ycpS('')}
+      else{ycpS('⚠️ '+d.error+' — we verify automatically & deliver.',true)}
+    }else{
+      ycpS('❌ '+((result.error&&result.error.message)||'Payment failed'),true);
+    }
+  }).catch(function(e){ycpS('❌ '+((e&&e.message)||'Payment error'),true)});
+}
+(function(){
+  try{
+    var q=new URLSearchParams(location.search);
+    if(q.get('card')==='success'&&q.get('order')){
+      var oid=q.get('order');
+      fetch('/api/ycp/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:oid})})
+        .then(function(r){return r.json()})
+        .then(function(d){ if(d.success){showSuccess(oid,'✅ Card payment confirmed! Delivery in progress 🚀')} });
+      history.replaceState({},'','/');
+    }
+  }catch(e){}
+})();
 async function manualClaim(m,refId){
+  if(claimBusy){alert('⏳ Processing your order — please wait 2 seconds!');return}
   var ref=$(refId).value.trim();if(!ref){alert('⚠️ Enter YOUR payment reference!');return}
+  claimBusy=true;try{
   var po=await createPendingOrder();if(!po)return;
   var r=await fetch('/api/claim-payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:po.orderId,method:m,paymentRef:ref})});
   var d=await r.json();
   if(d.success){showSuccess(po.orderId,'Payment claim received! We verify (5-30 min).');$(refId).value=''}
   else alert('⚠️ '+d.error)
+  }finally{claimBusy=false}
 }
 function showSuccess(id,m){$('success-order').textContent=id;$('success-msg').textContent=m;$('success-modal').style.display='flex'}
 async function checkStatus(){
